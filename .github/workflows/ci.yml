@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-lint:
+    # macos-15 ships Xcode 16 (Swift 6.x). The demo's Liquid Glass path is behind
+    # `#if compiler(>=6.2)`, so this runner builds the material fallback. Move to a
+    # macOS 26 / Xcode 26 runner once one is confirmed available to exercise that path.
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: Lint
+        run: swift format lint --strict --recursive Sources Tests Package.swift
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test

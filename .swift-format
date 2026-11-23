@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "lineLength": 120,
+  "indentation": { "spaces": 4 },
+  "rules": {
+    "AlwaysUseLowerCamelCase": false,
+    "NoLeadingUnderscores": false,
+    "AllPublicDeclarationsHaveDocumentation": false,
+    "OrderedImports": true
+  }
+}
