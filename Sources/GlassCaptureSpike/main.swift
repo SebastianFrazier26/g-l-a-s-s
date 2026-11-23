@@ -1,5 +1,4 @@
-// Feasibility spike (2026-11-23) for docs/DESIGN.md option B, PENDING the user's architecture
-// sign-off; lives on branch spike/overlay-b so it can be discarded wholesale.
+// Feasibility spike (2026-11-23) for docs/DESIGN.md option B, which was approved 2026-11-23.
 // Not yet run against a real window: capture needs Screen Recording, which can't be granted headless.
 // Build the bundled app with scripts/bundle-spike.sh and follow README "Running the spike".
 import AppKit
@@ -11,8 +10,8 @@ import GlassOverlay
 struct Options {
     var command = ""
     var appName = ""
-    var mode = "keyed"
-    var alpha = 0.55
+    var mode = OwnerDefaults.transparency
+    var alpha = TransparencySetting.defaultUniformAlpha
     var urgent = false
     var text = true
     var fps = 30
@@ -29,7 +28,9 @@ struct Options {
         }
         while let a = it.next() {
             switch a {
-            case "--mode": o.mode = it.next() ?? o.mode
+            case "--mode":
+                guard let m = it.next().flatMap(TransparencySetting.init(parsing:)) else { return nil }
+                o.mode = m
             case "--alpha": o.alpha = it.next().flatMap(Double.init) ?? o.alpha
             case "--fps": o.fps = it.next().flatMap(Int.init) ?? o.fps
             case "--key":
@@ -50,10 +51,10 @@ func usage() -> Never {
         GlassCaptureSpike --request-access        ask macOS for Screen Recording (shows the system prompt)
         GlassCaptureSpike --list                  on-screen app windows (no permission needed)
         GlassCaptureSpike --window <App> [options]
-            --mode keyed|uniform   keyed: window background turns to glass, content stays solid (default)
+            --mode keyed|uniform   keyed (default): window background turns to glass, content stays solid
             --alpha 0.55           window-copy opacity in uniform mode
             --key RRGGBB           key colour for keyed mode (default: the window's dominant colour)
-            --urgent-easing        draft of design Q3b: fast easing while text is unreadable
+            --urgent-easing        fast easing while text is unreadable (off: owner chose "always smooth")
             --no-text              skip OCR and text recolouring
             --fps 30
         """)
@@ -145,14 +146,9 @@ final class OverlayController {
 
     init(options: Options) {
         self.options = options
-        let mode: WindowMode =
-            options.mode == "uniform"
-            ? .uniform(alpha: options.alpha)
-            : .keyed(key: options.key ?? .white, tolerance: 0.06, softness: 0.12, contentAlpha: 1)
-        var o = OverlayPipeline.Options(parameters: GlassParameters(mode: mode))
-        o.urgentOmega = options.urgent ? 40 : nil
+        var o = OverlayPipeline.Options(transparency: options.mode, uniformAlpha: options.alpha, key: options.key)
+        o.urgentOmega = options.urgent ? 40 : OwnerDefaults.urgentOmega
         o.textEnabled = options.text
-        o.fixedKey = options.key
         pipeline = OverlayPipeline(options: o)
     }
 

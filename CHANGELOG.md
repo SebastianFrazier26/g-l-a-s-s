@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-11-23 (owner decisions, branch `mvp/overlay-b-robustness`)
+
+These are the owner's decisions, recorded in DESIGN §6b.
+- **Transparency is a setting, with both modes.** `TransparencySetting` offers `keyed` (the
+  default) and `uniform`.
+  - The spike's `--mode` now rejects unknown values instead of silently falling back to keyed.
+  - Uniform `--alpha` is clamped to 0...1.
+- **Always smooth.** Urgent easing stays off by default and remains available as
+  `--urgent-easing`.
+- **The contrast target stays APCA Lc 60.** It is now named in `OwnerDefaults`, which the pipeline
+  uses as its default.
+- **Signing stays ad-hoc.**
+
 ## 2026-11-23 (MVP robustness, branch `mvp/overlay-b-robustness`)
 
 Option B was approved, relayed via the orchestrating agent. Other design questions are still open.

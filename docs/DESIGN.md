@@ -1,7 +1,8 @@
 # g-l-a-s-s: design and feasibility
 
-> **Status: Option B approved 2026-11-23**, relayed via the orchestrating agent. The other open
-> questions (§6 and the overnight report) are still pending.
+> **Status: Option B approved 2026-11-23**, relayed via the orchestrating agent. Owner decisions on
+> transparency, easing, contrast and signing are recorded in §6b. Packaging and repo visibility are
+> still open.
 >
 > *Original status:* DRAFT, needs Sebastian's sign-off. The choice of architecture below is a
 > recommendation, not a decision. Written 2026-11-23 by an agent working overnight. The web research
@@ -275,7 +276,8 @@ Built ahead of sign-off so it can be evaluated. Discard the branch if B is rejec
 - **Text.**
   - Vision `.fast` OCR runs at 2 Hz and region analysis at 10 Hz.
   - Region identity is kept across OCR refreshes by box overlap (IoU ≥ 0.5).
-  - Optional urgent easing, design question 3(b), is behind `--urgent-easing`.
+  - Optional urgent easing, design question 3(b), is behind `--urgent-easing`. It is off by default
+    (owner decision, §6b).
 - **Unverified until it runs with permission:**
   - capture-to-overlay latency;
   - whether `order(.above, relativeTo:)` with another process's window number holds the overlay
@@ -315,3 +317,17 @@ Built ahead of sign-off so it can be evaluated. Discard the branch if B is rejec
 5. **Distribution:** Developer ID outside the App Store. Nothing is signed yet.
 6. **Repo visibility:** public by default, per the global norms. The repo is local only and not
    pushed.
+
+## 6b. Owner decisions (2026-11-23)
+
+Typed by the owner in the orchestrating session and relayed to the implementing agent.
+
+| Question | Decision | Where it lives |
+|---|---|---|
+| Transparency mode | **Both, as a setting.** Keyed is the default: uniform alpha fades the window's own text with its background. | `TransparencySetting` (`Sources/GlassOverlay/Settings.swift`); spike `--mode keyed\|uniform`, `--alpha` |
+| Urgent easing (Q3b) | **Always smooth.** Urgent easing stays off by default. The flag stays for experiments. | `OwnerDefaults.urgentOmega = nil`; spike `--urgent-easing` |
+| Contrast target | **APCA Lc 60** (unchanged). | `OwnerDefaults.contrastTarget` |
+| Signing | **Keep ad-hoc.** No Developer ID yet, so every rebuild of the .app needs Screen Recording granted again. | `scripts/bundle-spike.sh` |
+
+This supersedes assumption 1 in §6 (now confirmed) and assumption 5 (Developer ID is deferred).
+Still open: packaging and distribution channel, and repo visibility (§6.6).

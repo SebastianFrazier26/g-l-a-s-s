@@ -24,7 +24,8 @@
 - `Sources/GlassCaptureSpike`: throwaway ScreenCaptureKit overlay proof. It must keep compiling.
   Don't run `--window` or `--request-access` unattended. `--check` and `--list` are safe.
 - `docs/DESIGN.md`: the architecture options and feasibility. Option B was approved on 2026-11-23,
-  relayed via the orchestrator. DESIGN §6 assumptions and the open questions still need answers.
+  relayed via the orchestrator. The owner's decisions (transparency, easing, contrast, signing) are
+  in DESIGN §6b and `OwnerDefaults`. Packaging and repo visibility are still open.
 
 ## Conventions
 

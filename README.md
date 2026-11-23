@@ -61,8 +61,7 @@ swift run GlassDemo --snapshot demo.png                 # headless contact sheet
 
 ### Running the overlay spike (needs you, once)
 
-> Branch `spike/overlay-b` only. This is DESIGN option B, built before the architecture was signed
-> off, so the whole branch can be thrown away.
+> Branches `spike/overlay-b` and later. This is DESIGN option B, which was approved on 2026-11-23.
 
 The spike glasses one window of another app. It mirrors that window over its own blurred backdrop
 (the overlay lets clicks through), makes the window's background see-through, and recolours its
@@ -89,10 +88,12 @@ scripts/bundle-spike.sh                      # → build/GlassCaptureSpike.app (
    The log should show `Screen Recording: granted`.
 4. **Run it on a window.** Open, say, TextEdit with some text, then run:
    ```sh
-   open build/GlassCaptureSpike.app --args --window TextEdit --urgent-easing
+   open build/GlassCaptureSpike.app --args --window TextEdit
    tail -f ~/Library/Logs/g-l-a-s-s/spike.log
    ```
-   - Options: `--mode uniform --alpha 0.55`, `--key FFFFFF`, `--no-text`, `--fps 30`.
+   - Transparency is a setting: `--mode keyed` (the default) or `--mode uniform --alpha 0.55`.
+   - Other options: `--key FFFFFF`, `--no-text`, `--fps 30`, and `--urgent-easing`. Urgent easing
+     is off by default because the owner chose "always smooth".
    - `--list` shows window owner names; it needs no permission.
 5. **Stop it.** Run `pkill -x GlassCaptureSpike`.
 

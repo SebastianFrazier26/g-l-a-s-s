@@ -8,8 +8,8 @@ import GlassContrast
 public final class OverlayPipeline: @unchecked Sendable {
     public struct Options: Sendable {
         public var parameters: GlassParameters
-        public var target: ContrastTarget = .apca(60)
-        public var urgentOmega: Double?
+        public var target: ContrastTarget = OwnerDefaults.contrastTarget
+        public var urgentOmega: Double? = OwnerDefaults.urgentOmega
         public var textEnabled = true
         /// Key colour comes from the window itself when nil (its dominant colour).
         public var fixedKey: RGB?
