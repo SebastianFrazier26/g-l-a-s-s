@@ -1,69 +1,111 @@
-// Feasibility spike (2026-11-23) for the overlay architecture in docs/DESIGN.md, option B.
-// Throwaway: compiles in CI, has not been run against a real window, because it needs
-// Screen Recording permission that can't be granted headless. See README "Running the spike".
+// Feasibility spike (2026-11-23) for docs/DESIGN.md option B, PENDING the user's architecture
+// sign-off; lives on branch spike/overlay-b so it can be discarded wholesale.
+// Not yet run against a real window: capture needs Screen Recording, which can't be granted headless.
+// Build the bundled app with scripts/bundle-spike.sh and follow README "Running the spike".
 import AppKit
 import ApplicationServices
-import CoreImage
 import GlassContrast
+import GlassOverlay
 @preconcurrency import ScreenCaptureKit
+
+struct Options {
+    var command = ""
+    var appName = ""
+    var mode = "keyed"
+    var alpha = 0.55
+    var urgent = false
+    var text = true
+    var fps = 30
+    var key: RGB?
+
+    static func parse(_ args: [String]) -> Options? {
+        var o = Options()
+        var it = args.dropFirst().makeIterator()
+        guard let cmd = it.next() else { return nil }
+        o.command = cmd
+        if cmd == "--window" {
+            guard let name = it.next() else { return nil }
+            o.appName = name
+        }
+        while let a = it.next() {
+            switch a {
+            case "--mode": o.mode = it.next() ?? o.mode
+            case "--alpha": o.alpha = it.next().flatMap(Double.init) ?? o.alpha
+            case "--fps": o.fps = it.next().flatMap(Int.init) ?? o.fps
+            case "--key":
+                o.key = it.next().flatMap { UInt32($0.trimmingCharacters(in: ["#"]), radix: 16) }.map(RGB.init(hex:))
+            case "--urgent-easing": o.urgent = true
+            case "--no-text": o.text = false
+            default: return nil
+            }
+        }
+        return o
+    }
+}
 
 func usage() -> Never {
     print(
         """
-        GlassCaptureSpike --check            permission status (never prompts)
-        GlassCaptureSpike --list             on-screen windows (needs Screen Recording)
-        GlassCaptureSpike --window <app>     glass overlay over that app's frontmost window
-                          [--alpha 0.55]     opacity of the window copy over the blurred backdrop
+        GlassCaptureSpike --check                 permission status (never prompts)
+        GlassCaptureSpike --request-access        ask macOS for Screen Recording (shows the system prompt)
+        GlassCaptureSpike --list                  on-screen app windows (no permission needed)
+        GlassCaptureSpike --window <App> [options]
+            --mode keyed|uniform   keyed: window background turns to glass, content stays solid (default)
+            --alpha 0.55           window-copy opacity in uniform mode
+            --key RRGGBB           key colour for keyed mode (default: the window's dominant colour)
+            --urgent-easing        draft of design Q3b: fast easing while text is unreadable
+            --no-text              skip OCR and text recolouring
+            --fps 30
         """)
     exit(2)
 }
 
-let args = CommandLine.arguments
-guard args.count >= 2 else { usage() }
+/// Inside the .app (launched via `open`, so TCC attributes permission to the app rather than the
+/// terminal) stdout goes nowhere; mirror it to a log file instead.
+func redirectOutputIfDetached() {
+    guard Bundle.main.bundleURL.pathExtension == "app" else { return }
+    let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/g-l-a-s-s")
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let path = dir.appendingPathComponent("spike.log").path
+    freopen(path, "a", stdout)
+    freopen(path, "a", stderr)
+    setvbuf(stdout, nil, _IOLBF, 0)
+    print("--- \(Date()) \(CommandLine.arguments.dropFirst().joined(separator: " "))")
+}
 
 func checkPermissions() -> Bool {
-    // Both calls only *read* TCC state; CGRequestScreenCaptureAccess / AXIsProcessTrustedWithOptions
-    // with the prompt key are the ones that would pop a dialog.
+    // Preflight calls only read TCC state; they never show a prompt.
     let screen = CGPreflightScreenCaptureAccess()
-    let ax = AXIsProcessTrusted()
     print("Screen Recording: \(screen ? "granted" : "NOT granted")")
-    print("Accessibility:    \(ax ? "granted" : "not granted (only needed for AX text frames, not this spike)")")
+    print("Accessibility:    \(AXIsProcessTrusted() ? "granted" : "not granted (not needed by this spike)")")
+    print("Executable:       \(Bundle.main.bundlePath)")
     return screen
 }
 
-func requireScreenRecording() {
-    guard checkPermissions() else {
-        print(
-            """
-            Grant Screen Recording to the app running this binary (e.g. Terminal) in
-            System Settings > Privacy & Security > Screen & System Audio Recording, then relaunch.
-            """)
-        exit(1)
-    }
-}
+redirectOutputIfDetached()
+guard let opts = Options.parse(CommandLine.arguments) else { usage() }
 
-switch args[1] {
+switch opts.command {
 case "--check":
     _ = checkPermissions()
     exit(0)
+case "--request-access":
+    // The one place a prompt is allowed: the user explicitly asked for it.
+    print(CGRequestScreenCaptureAccess() ? "granted" : "not granted yet: enable it in System Settings, then relaunch")
+    exit(0)
 case "--list":
-    requireScreenRecording()
-    Task {
-        let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
-        for w in content.windows where w.windowLayer == 0 {
-            let app = w.owningApplication?.applicationName ?? "?"
-            print("\(w.windowID)\t\(app)\t\(w.title ?? "")\t\(w.frame)")
-        }
-        exit(0)
+    for w in WindowList.allOnScreen().compactMap(WindowSnapshot.init(info:)) where w.layer == 0 {
+        print("\(w.id)\t\(w.ownerName)\t\(w.frame)")
     }
-    RunLoop.main.run()
+    exit(0)
 case "--window":
-    guard args.count >= 3 else { usage() }
-    requireScreenRecording()
-    let alpha = args.firstIndex(of: "--alpha").flatMap { Double(args[$0 + 1]) } ?? 0.55
+    guard checkPermissions() else {
+        print("Screen Recording is required. Run with --request-access, enable it, relaunch.")
+        exit(1)
+    }
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
-    let controller = OverlayController(appName: args[2], alpha: alpha)
+    let controller = MainActor.assumeIsolated { OverlayController(options: opts) }
     Task { @MainActor in
         do {
             try await controller.start()
@@ -77,190 +119,174 @@ default:
     usage()
 }
 
-/// Wraps capture-queue values for hand-off to the main actor. IOSurface-backed buffers are
-/// immutable once delivered by ScreenCaptureKit, so sharing them across threads is safe.
-struct Unchecked<T>: @unchecked Sendable {
-    let value: T
-}
-
 @MainActor
 final class OverlayController {
-    let appName: String
-    let alpha: Double
-    private var window: NSWindow?
-    private let backdropLayer = CALayer()
-    private let windowLayer = CALayer()
-    private var streams: [SCStream] = []
+    let options: Options
+    let pipeline: OverlayPipeline
+    private var overlay: OverlayWindow?
+    private var tracker: WindowTracker?
+    private var backdropStream: SCStream?
+    private var windowStream: SCStream?
     private var outputs: [FrameOutput] = []
-    private var adaptive = AdaptiveTextColor(original: RGB(hex: 0x000000), solver: ContrastSolver(target: .apca(60)))
-    private var lastLog = Date.distantPast
+    private var target: SCWindow?
+    private var display: SCDisplay?
+    private var excluded: [SCWindow] = []
+    private var lastSize: CGSize = .zero
+    private var frames = 0
+    private var lastReport = Date()
 
-    init(appName: String, alpha: Double) {
-        self.appName = appName
-        self.alpha = alpha
+    init(options: Options) {
+        self.options = options
+        let mode: WindowMode =
+            options.mode == "uniform"
+            ? .uniform(alpha: options.alpha)
+            : .keyed(key: options.key ?? .white, tolerance: 0.06, softness: 0.12, contentAlpha: 1)
+        var o = OverlayPipeline.Options(parameters: GlassParameters(mode: mode))
+        o.urgentOmega = options.urgent ? 40 : nil
+        o.textEnabled = options.text
+        o.fixedKey = options.key
+        pipeline = OverlayPipeline(options: o)
     }
 
     func start() async throws {
+        guard let snap = WindowList.frontmostWindow(ownedBy: options.appName, in: WindowList.allOnScreen()) else {
+            print("no on-screen window for \(options.appName); try --list")
+            exit(1)
+        }
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        guard
-            let target = content.windows.first(where: {
-                $0.owningApplication?.applicationName == appName && $0.windowLayer == 0 && $0.isOnScreen
-            })
+        guard let target = content.windows.first(where: { $0.windowID == snap.id }),
+            let display = content.displays.first(where: { $0.frame.intersects(snap.frame) })
         else {
-            print("no on-screen window for \(appName); try --list")
+            print("ScreenCaptureKit can't see window \(snap.id)")
             exit(1)
         }
-        guard let display = content.displays.first(where: { $0.frame.intersects(target.frame) }) else {
-            print("target window is not on any display")
-            exit(1)
-        }
+        self.target = target
+        self.display = display
 
-        window = makeOverlay(over: target.frame)
-        // Re-query once the overlay exists so it can be excluded too: the backdrop must show what is
-        // *behind* the target, without the target and without our own overlay (a feedback loop).
-        // `sharingType = .none` may already hide it, but that is not guaranteed for ScreenCaptureKit.
+        let overlay = OverlayWindow(cgFrame: snap.frame)
+        overlay.orderFrontRegardless()
+        overlay.follow(cgFrame: snap.frame, targetWindowNumber: Int(snap.id))
+        self.overlay = overlay
+
+        // Re-query so our own overlay can be excluded from the backdrop (else: feedback loop).
         let refreshed = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         let pid = ProcessInfo.processInfo.processIdentifier
-        let ownWindows = refreshed.windows.filter { $0.owningApplication?.processID == pid }
-        let behind = SCContentFilter(display: display, excludingWindows: [target] + ownWindows)
+        excluded = [target] + refreshed.windows.filter { $0.owningApplication?.processID == pid }
 
-        let scale = Double(NSScreen.main?.backingScaleFactor ?? 2)
-        let backdropConfig = SCStreamConfiguration()
-        backdropConfig.sourceRect = CGRect(
-            x: target.frame.minX - display.frame.minX, y: target.frame.minY - display.frame.minY,
-            width: target.frame.width, height: target.frame.height)
-        // The backdrop is about to be blurred, so half resolution costs nothing visible.
-        backdropConfig.width = Int(target.frame.width * scale / 2)
-        backdropConfig.height = Int(target.frame.height * scale / 2)
-        backdropConfig.minimumFrameInterval = CMTime(value: 1, timescale: 30)
-        backdropConfig.pixelFormat = kCVPixelFormatType_32BGRA
-        backdropConfig.showsCursor = false
-        backdropConfig.queueDepth = 3
+        let backdrop = SCStream(
+            filter: SCContentFilter(display: display, excludingWindows: excluded),
+            configuration: backdropConfig(for: snap.frame), delegate: nil)
+        let window = SCStream(
+            filter: SCContentFilter(desktopIndependentWindow: target),
+            configuration: windowConfig(for: snap.frame.size), delegate: nil)
+        try addOutput(to: backdrop, role: .backdrop)
+        try addOutput(to: window, role: .window)
+        try await backdrop.startCapture()
+        try await window.startCapture()
+        backdropStream = backdrop
+        windowStream = window
+        lastSize = snap.frame.size
+        pipeline.startAnalysis()
 
-        let windowConfig = SCStreamConfiguration()
-        windowConfig.width = Int(target.frame.width * scale)
-        windowConfig.height = Int(target.frame.height * scale)
-        windowConfig.minimumFrameInterval = CMTime(value: 1, timescale: 30)
-        windowConfig.pixelFormat = kCVPixelFormatType_32BGRA
-        windowConfig.showsCursor = false
-        windowConfig.queueDepth = 3
-
-        try await addStream(filter: behind, config: backdropConfig, role: .backdrop)
-        try await addStream(
-            filter: SCContentFilter(desktopIndependentWindow: target), config: windowConfig, role: .window)
-        print("overlay running over \(appName) window \(target.windowID); Ctrl-C to quit")
+        let tracker = WindowTracker(windowID: snap.id) { [weak self] event in self?.handle(event) }
+        tracker.start(hz: 60)
+        self.tracker = tracker
+        print("glassing \(options.appName) window \(snap.id) (\(options.mode)); quit with: pkill -x GlassCaptureSpike")
     }
 
-    private func makeOverlay(over cgFrame: CGRect) -> NSWindow {
-        // ScreenCaptureKit frames use a top-left origin; AppKit uses bottom-left of the main screen.
-        let mainHeight = NSScreen.screens.first?.frame.height ?? cgFrame.maxY
-        let frame = NSRect(
-            x: cgFrame.minX, y: mainHeight - cgFrame.maxY, width: cgFrame.width, height: cgFrame.height)
-        let w = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
-        w.isOpaque = false
-        w.backgroundColor = .clear
-        w.hasShadow = false
-        w.ignoresMouseEvents = true  // clicks fall through to the real window underneath
-        w.level = .floating
-        w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        w.sharingType = .none
-
-        let root = CALayer()
-        root.frame = CGRect(origin: .zero, size: frame.size)
-        backdropLayer.frame = root.bounds
-        backdropLayer.contentsGravity = .resize
-        if let blur = CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: 24]) {
-            backdropLayer.filters = [blur]
-        }
-        windowLayer.frame = root.bounds
-        windowLayer.contentsGravity = .resize
-        windowLayer.opacity = Float(alpha)
-        root.addSublayer(backdropLayer)
-        root.addSublayer(windowLayer)
-
-        let view = NSView(frame: root.bounds)
-        view.wantsLayer = true
-        view.layerUsesCoreImageFilters = true
-        view.layer = root
-        w.contentView = view
-        w.orderFrontRegardless()
-        return w
-    }
-
-    private func addStream(filter: SCContentFilter, config: SCStreamConfiguration, role: FrameOutput.Role) async throws
-    {
-        let output = FrameOutput(role: role) { [weak self] role, surface, sample in
-            Task { @MainActor in self?.present(role: role, surface: surface, sample: sample) }
-        }
-        let stream = SCStream(filter: filter, configuration: config, delegate: nil)
-        try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: output.queue)
-        try await stream.startCapture()
-        streams.append(stream)
-        outputs.append(output)
-    }
-
-    private func present(role: FrameOutput.Role, surface: Unchecked<IOSurface>, sample: BackgroundSample?) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        switch role {
-        case .backdrop: backdropLayer.contents = surface.value
-        case .window: windowLayer.contents = surface.value
-        }
-        CATransaction.commit()
-
-        // Spike stand-in for text recolouring: report what colour default black text would need
-        // to stay readable over the new backdrop. Real build feeds per-text-region samples.
-        if let sample {
-            let c = adaptive.update(background: sample, dt: 1.0 / 30)
-            if Date().timeIntervalSince(lastLog) > 1 {
-                lastLog = Date()
-                print(
-                    String(
-                        format: "backdrop → text colour #%02X%02X%02X (polarity %@)",
-                        Int(c.r * 255), Int(c.g * 255), Int(c.b * 255),
-                        adaptive.polarity == .lighter ? "light" : "dark"))
+    private func handle(_ event: WindowTracker.Event) {
+        switch event {
+        case .closed:
+            print("target window closed")
+            exit(0)
+        case .changed(let frame):
+            overlay?.follow(cgFrame: frame, targetWindowNumber: Int(tracker?.windowID ?? 0))
+            let sizeChanged = frame.size != lastSize
+            lastSize = frame.size
+            Task {
+                try? await backdropStream?.updateConfiguration(backdropConfig(for: frame))
+                if sizeChanged { try? await windowStream?.updateConfiguration(windowConfig(for: frame.size)) }
             }
         }
     }
+
+    private var scale: Double { Double(overlay?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2) }
+
+    private func backdropConfig(for frame: CGRect) -> SCStreamConfiguration {
+        let c = SCStreamConfiguration()
+        let origin = display?.frame.origin ?? .zero
+        c.sourceRect = CGRect(
+            x: frame.minX - origin.x, y: frame.minY - origin.y, width: frame.width, height: frame.height)
+        // Blurred anyway, so half resolution costs nothing visible.
+        c.width = max(2, Int(frame.width * scale / 2))
+        c.height = max(2, Int(frame.height * scale / 2))
+        common(c)
+        return c
+    }
+
+    private func windowConfig(for size: CGSize) -> SCStreamConfiguration {
+        let c = SCStreamConfiguration()
+        c.width = max(2, Int(size.width * scale))
+        c.height = max(2, Int(size.height * scale))
+        common(c)
+        return c
+    }
+
+    private func common(_ c: SCStreamConfiguration) {
+        c.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(options.fps))
+        c.pixelFormat = kCVPixelFormatType_32BGRA
+        c.showsCursor = false
+        c.queueDepth = 3
+    }
+
+    private func addOutput(to stream: SCStream, role: FrameOutput.Role) throws {
+        let pipeline = self.pipeline
+        let output = FrameOutput(role: role) { [weak self] role, buffer in
+            switch role {
+            case .backdrop:
+                pipeline.ingestBackdrop(buffer.value)
+            case .window:
+                guard let out = pipeline.ingestWindow(buffer.value),
+                    let surface = CVPixelBufferGetIOSurface(out)?.takeUnretainedValue()
+                else { return }
+                let box = Unchecked(value: surface)
+                Task { @MainActor in self?.present(box.value) }
+            }
+        }
+        try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: output.queue)
+        outputs.append(output)
+    }
+
+    private func present(_ surface: IOSurface) {
+        overlay?.contentLayer.contents = surface
+        frames += 1
+        if Date().timeIntervalSince(lastReport) >= 5 {
+            print(String(format: "%.1f fps composited", Double(frames) / Date().timeIntervalSince(lastReport)))
+            frames = 0
+            lastReport = Date()
+        }
+    }
+}
+
+/// Hands capture-queue values to other threads. ScreenCaptureKit buffers are IOSurface-backed and
+/// not written after delivery, so sharing them is safe.
+struct Unchecked<T>: @unchecked Sendable {
+    let value: T
 }
 
 final class FrameOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     enum Role: Sendable { case backdrop, window }
     let role: Role
     let queue = DispatchQueue(label: "glass.capture", qos: .userInteractive)
-    private let onFrame: @Sendable (Role, Unchecked<IOSurface>, BackgroundSample?) -> Void
+    private let onFrame: @Sendable (Role, Unchecked<CVPixelBuffer>) -> Void
 
-    init(role: Role, onFrame: @escaping @Sendable (Role, Unchecked<IOSurface>, BackgroundSample?) -> Void) {
+    init(role: Role, onFrame: @escaping @Sendable (Role, Unchecked<CVPixelBuffer>) -> Void) {
         self.role = role
         self.onFrame = onFrame
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .screen, sampleBuffer.isValid,
-            let pixels = sampleBuffer.imageBuffer,
-            let surface = CVPixelBufferGetIOSurface(pixels)?.takeUnretainedValue()
-        else { return }
-        let sample = role == .backdrop ? Self.sample(pixels) : nil
-        onFrame(role, Unchecked(value: surface), sample)
-    }
-
-    /// Coarse 16×16 grid of BGRA pixels: enough for the solver's quantiles, cheap enough for 30 fps.
-    static func sample(_ buffer: CVPixelBuffer) -> BackgroundSample {
-        CVPixelBufferLockBaseAddress(buffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
-        guard let base = CVPixelBufferGetBaseAddress(buffer) else { return BackgroundSample(colors: []) }
-        let w = CVPixelBufferGetWidth(buffer), h = CVPixelBufferGetHeight(buffer)
-        let stride = CVPixelBufferGetBytesPerRow(buffer)
-        let bytes = base.assumingMemoryBound(to: UInt8.self)
-        var colors: [RGB] = []
-        colors.reserveCapacity(256)
-        for gy in 0..<16 {
-            for gx in 0..<16 {
-                let x = (gx * 2 + 1) * w / 32, y = (gy * 2 + 1) * h / 32
-                let p = bytes + y * stride + x * 4
-                colors.append(RGB(r: Double(p[2]) / 255, g: Double(p[1]) / 255, b: Double(p[0]) / 255))
-            }
-        }
-        return BackgroundSample(colors: colors)
+        guard type == .screen, sampleBuffer.isValid, let pixels = sampleBuffer.imageBuffer else { return }
+        onFrame(role, Unchecked(value: pixels))
     }
 }

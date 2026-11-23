@@ -39,6 +39,10 @@ public struct SpringSmoother: Sendable {
 ///    `deadband` (ΔE_OK; 0.02 ≈ one just-noticeable difference).
 /// 2. The solver's polarity hysteresis, so near-equal light/dark choices don't alternate.
 ///
+/// `urgentOmega` (draft of design question 3b, off by default): while the colour on screen fails
+/// the target, ease at this faster rate; once readable, fall back to the calm `omega`. Readability
+/// recovers quickly, and only cosmetic refinements stay slow.
+///
 /// With `allowScrim`, lines that no text colour can rescue get a translucent veil (see `ScrimResult`)
 /// whose opacity and colour are eased by their own springs, so the veil fades rather than pops.
 public struct AdaptiveTextColor: Sendable {
@@ -47,6 +51,7 @@ public struct AdaptiveTextColor: Sendable {
     public var headroom: Double
     public var deadband: Double
     public var allowScrim: Bool
+    public var urgentOmega: Double?
     public private(set) var target: RGB
     public private(set) var polarity: Polarity?
     public private(set) var current: RGB
@@ -57,11 +62,14 @@ public struct AdaptiveTextColor: Sendable {
     private var spring: SpringSmoother
     private var scrimColorSpring: SpringSmoother
     private var scrimOpacitySpring: SpringSmoother
+    private var calmOmega: Double
 
     public init(
         original: RGB, solver: ContrastSolver, omega: Double = 12, headroom: Double = 0.05, deadband: Double = 0.02,
-        allowScrim: Bool = false
+        allowScrim: Bool = false, urgentOmega: Double? = nil
     ) {
+        self.urgentOmega = urgentOmega
+        calmOmega = omega
         self.original = original
         self.solver = solver
         self.headroom = headroom
@@ -75,12 +83,13 @@ public struct AdaptiveTextColor: Sendable {
     }
 
     public var omega: Double {
-        get { spring.omega }
-        set {
-            spring.omega = newValue
-            scrimColorSpring.omega = newValue
-            scrimOpacitySpring.omega = newValue
-        }
+        get { calmOmega }
+        set { calmOmega = newValue }
+    }
+
+    /// True when the colour (and veil) currently on screen misses the target for this background.
+    public func isDisplayedUnreadable(over background: BackgroundSample) -> Bool {
+        solver.worstCase(text: current, background: veil(background, scrim, scrimOpacity)) < solver.target.threshold
     }
 
     public mutating func update(background: BackgroundSample, dt: Double) -> RGB {
@@ -110,6 +119,10 @@ public struct AdaptiveTextColor: Sendable {
             targetScrimOpacity = idealScrim.opacity
             if idealScrim.opacity > 0 { targetScrim = idealScrim.color }
         }
+        let rate = urgentOmega.map { isDisplayedUnreadable(over: background) ? $0 : calmOmega } ?? calmOmega
+        spring.omega = rate
+        scrimColorSpring.omega = rate
+        scrimOpacitySpring.omega = rate
         current = spring.step(toward: target.oklab, dt: dt).rgb.clamped()
         scrim = scrimColorSpring.step(toward: targetScrim.oklab, dt: dt).rgb.clamped()
         scrimOpacity = min(

@@ -98,3 +98,50 @@ struct AdaptiveTests {
         }
     }
 }
+
+@Suite("Urgent easing (draft of design question 3b)")
+struct UrgentEasingTests {
+    func framesUntilReadable(urgent: Double?) -> Int {
+        var a = AdaptiveTextColor(
+            original: RGB(hex: 0x3355AA), solver: ContrastSolver(target: .apca(60)), urgentOmega: urgent)
+        for _ in 0..<180 { _ = a.update(background: .uniform(RGB(hex: 0x101418)), dt: 1.0 / 60) }
+        let light = BackgroundSample.uniform(RGB(hex: 0xF0F0F0))
+        for frame in 1...600 {
+            _ = a.update(background: light, dt: 1.0 / 60)
+            if !a.isDisplayedUnreadable(over: light) { return frame }
+        }
+        return .max
+    }
+
+    @Test func recoversReadabilityFaster() {
+        let calm = framesUntilReadable(urgent: nil)
+        let urgent = framesUntilReadable(urgent: 40)
+        #expect(urgent < calm)
+        #expect(urgent <= 12)  // ≤ 200 ms at 60 fps
+    }
+
+    @Test func offByDefaultMatchesCalmBehaviour() {
+        var a = AdaptiveTextColor(original: RGB(hex: 0x3355AA), solver: ContrastSolver(target: .apca(60)))
+        var b = AdaptiveTextColor(
+            original: RGB(hex: 0x3355AA), solver: ContrastSolver(target: .apca(60)), urgentOmega: nil)
+        var rng = SplitMix64(seed: 11)
+        for _ in 0..<200 {
+            let bg = BackgroundSample.uniform(RGB(r: rng.unit(), g: rng.unit(), b: rng.unit()))
+            #expect(a.update(background: bg, dt: 1.0 / 30) == b.update(background: bg, dt: 1.0 / 30))
+        }
+    }
+
+    @Test func readableRefinementsStayCalm() {
+        // Already readable on both backgrounds: the urgent rate must not kick in, so both settle alike.
+        var calm = AdaptiveTextColor(original: RGB(hex: 0xFFFFFF), solver: ContrastSolver(target: .apca(45)))
+        var urgent = AdaptiveTextColor(
+            original: RGB(hex: 0xFFFFFF), solver: ContrastSolver(target: .apca(45)), urgentOmega: 40)
+        for bg in [RGB(hex: 0x000000), RGB(hex: 0x202020)] {
+            for _ in 0..<30 {
+                #expect(
+                    calm.update(background: .uniform(bg), dt: 1.0 / 60)
+                        == urgent.update(background: .uniform(bg), dt: 1.0 / 60))
+            }
+        }
+    }
+}

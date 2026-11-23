@@ -259,6 +259,27 @@ t = 1.6 s and 8.0 s in `docs/img/demo-contact-sheet.png`, Lc 57 against a target
 cost of "gradually transient". A fix, if wanted, is to ease faster when contrast is violated than
 when it is merely improving. That is open question Q3.
 
+## 5b. Option B spike status (branch `spike/overlay-b`, 2026-11-23)
+
+Built ahead of sign-off so it can be evaluated. Discard the branch if B is rejected.
+- **Tracking.**
+  - *Verified on this machine:* CGWindowList returns other apps' window bounds and owner names with
+    Screen Recording **not** granted.
+  - So tracking needs no permission at all. That is why it polls (60 Hz) rather than using AX
+    observers, which would need Accessibility plus a private call to map AX windows to window ids.
+- **Compositing.** Core Image, with blending in linear light. Unit-tested against synthetic frames
+  on the CPU renderer, and on the GPU through `CVPixelBuffer`s in the live path.
+- **Text.**
+  - Vision `.fast` OCR runs at 2 Hz and region analysis at 10 Hz.
+  - Region identity is kept across OCR refreshes by box overlap (IoU ≥ 0.5).
+  - Optional urgent easing, design question 3(b), is behind `--urgent-easing`.
+- **Unverified until it runs with permission:**
+  - capture-to-overlay latency;
+  - whether `order(.above, relativeTo:)` with another process's window number holds the overlay
+    exactly above the target;
+  - real-world keying quality on gradients and vibrancy;
+  - CPU/GPU cost.
+
 ## 6. Assumptions made overnight (correct any)
 
 1. **Contrast metric:** APCA Lc 60 by default, with WCAG available. APCA isn't a W3C standard yet.

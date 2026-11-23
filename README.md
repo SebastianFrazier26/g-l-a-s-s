@@ -18,9 +18,9 @@ Early. Nothing is released and nothing is signed.
 
 | Part | State |
 |---|---|
-| `GlassContrast`: colour engine (OKLab/OKLCH, WCAG, APCA, solver, smoothing) | built, 56 tests |
+| `GlassContrast`: colour engine (OKLab/OKLCH, WCAG, APCA, solver, smoothing) | built, tested |
 | `GlassDemo`: SwiftUI glass window over a moving backdrop | built, runs |
-| `GlassCaptureSpike`: overlay over *another* app's window (ScreenCaptureKit) | compiles; not yet run (needs permission) |
+| `GlassOverlay` + `GlassCaptureSpike`: overlay over *another* app's window (branch `spike/overlay-b`) | tracking, compositing and text layer unit-tested on synthetic frames; live capture not yet run (needs permission) |
 | Real app for "any window" | design awaiting sign-off: [`docs/DESIGN.md`](docs/DESIGN.md) |
 
 ### Why "any window" is hard
@@ -59,18 +59,50 @@ swift run GlassDemo                                     # live demo window
 swift run GlassDemo --snapshot demo.png                 # headless contact sheet
 ```
 
-### Running the spike (needs you)
+### Running the overlay spike (needs you, once)
+
+> Branch `spike/overlay-b` only. This is DESIGN option B, built before the architecture was signed
+> off, so the whole branch can be thrown away.
+
+The spike glasses one window of another app. It mirrors that window over its own blurred backdrop
+(the overlay lets clicks through), makes the window's background see-through, and recolours its
+text. Capturing other windows needs **Screen Recording**. macOS grants that to a bundled, signed
+`.app`, not to a bare binary, so first build one:
 
 ```sh
-swift run GlassCaptureSpike --check     # permission status; never prompts
-swift run GlassCaptureSpike --list      # needs Screen Recording
-swift run GlassCaptureSpike --window Safari --alpha 0.55
+scripts/bundle-spike.sh                      # → build/GlassCaptureSpike.app (ad-hoc signed)
 ```
 
-The spike needs **Screen Recording** permission. Grant it to the terminal app that runs the binary,
-in System Settings › Privacy & Security › Screen & System Audio Recording. It is a throwaway proof:
-the window position is fixed at launch, and text is not yet recoloured. It only logs the colour that
-default black text would need.
+1. **Ask for permission.** Run:
+   ```sh
+   open build/GlassCaptureSpike.app --args --request-access
+   ```
+   macOS shows its Screen Recording prompt; choose **Open System Settings**. If no prompt appears,
+   go there yourself: System Settings › Privacy & Security › Screen & System Audio Recording.
+2. **Turn it on.** In that list, switch on **GlassCaptureSpike**. If it isn't listed, use **+** and
+   pick `build/GlassCaptureSpike.app`.
+3. **Check it worked.** Run:
+   ```sh
+   open build/GlassCaptureSpike.app --args --check
+   tail ~/Library/Logs/g-l-a-s-s/spike.log
+   ```
+   The log should show `Screen Recording: granted`.
+4. **Run it on a window.** Open, say, TextEdit with some text, then run:
+   ```sh
+   open build/GlassCaptureSpike.app --args --window TextEdit --urgent-easing
+   tail -f ~/Library/Logs/g-l-a-s-s/spike.log
+   ```
+   - Options: `--mode uniform --alpha 0.55`, `--key FFFFFF`, `--no-text`, `--fps 30`.
+   - `--list` shows window owner names; it needs no permission.
+5. **Stop it.** Run `pkill -x GlassCaptureSpike`.
+
+**Don't rebuild between granting and running.** An ad-hoc signed app is identified by its exact code
+hash, so every `scripts/bundle-spike.sh` run produces a "new" app and repeats step 2. To avoid that,
+set `GLASS_SIGN_IDENTITY` to an Apple Development identity. You can revoke the permission at any
+time in the same Settings pane.
+
+The spike needs no Accessibility permission. Window tracking polls the window list, which works
+without any permission.
 
 ## Licence
 

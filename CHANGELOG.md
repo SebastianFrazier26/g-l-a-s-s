@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-11-23 (later): branch `spike/overlay-b`, pending architecture sign-off
+
+### New `GlassOverlay` library (design option B)
+- `WindowTracker` follows a window's moves, resizes and closing. It polls CGWindowList, which
+  needs no permission.
+- `OverlayWindow`: borderless and click-through, ordered just above the target window.
+- `GlassCompositor` is a Core Image pipeline:
+  - blurred, tinted backdrop;
+  - window copy, either at uniform alpha or with its background colour keyed out;
+  - per-region glyph recolour and scrim.
+- `TextLayerModel` and `VisionTextDetector` handle text:
+  - Vision OCR finds text regions;
+  - region analysis picks out the window background and the text's ink colour;
+  - a photo guard skips regions that look like images;
+  - each region gets its own adaptive colour.
+- `OverlayPipeline` is the thread-safe glue between capture, analysis and compositing.
+
+### Other changes
+- `AdaptiveTextColor.urgentOmega` is a draft of design question 3b, off by default: fast easing
+  while the text on screen is unreadable.
+- `GlassCaptureSpike` is rebuilt on `GlassOverlay`.
+- `scripts/bundle-spike.sh` builds a signed .app, so Screen Recording can be granted to it.
+
 ## 2026-11-23
 
 ### Scaffold
