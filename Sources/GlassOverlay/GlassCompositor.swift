@@ -68,13 +68,21 @@ public final class GlassCompositor: @unchecked Sendable {
         ])
     }
 
-    public func compose(backdrop: CIImage, window: CIImage, parameters p: GlassParameters, text: [TextStyle] = [])
-        -> CIImage
-    {
+    /// - Parameters:
+    ///   - holes: top-left pixel rects left fully transparent, so windows in front of the target
+    ///     (menus, popovers, other apps) show through untouched.
+    ///   - backdropCoverage: top-left pixel rect of the window the backdrop was captured for, when
+    ///     the window straddles displays; nil means the backdrop covers the whole window.
+    public func compose(
+        backdrop: CIImage, window: CIImage, parameters p: GlassParameters, text: [TextStyle] = [],
+        holes: [CGRect] = [], backdropCoverage: CGRect? = nil
+    ) -> CIImage {
         let extent = window.extent
-        var glass = fitted(backdrop, to: extent)
+        var glass = fitted(backdrop, to: backdropCoverage.map { ciRect($0, in: extent) } ?? extent)
         if p.blurRadius > 0 {
             glass = glass.clampedToExtent().applyingGaussianBlur(sigma: p.blurRadius).cropped(to: extent)
+        } else {
+            glass = glass.clampedToExtent().cropped(to: extent)
         }
         if p.tintOpacity > 0 {
             glass = constant(p.tint, alpha: p.tintOpacity, extent).composited(over: glass)
@@ -108,6 +116,12 @@ public final class GlassCompositor: @unchecked Sendable {
             ).cropped(to: r)
             out = constant(style.color, alpha: 1, r).applyingFilter(
                 "CIBlendWithAlphaMask", parameters: [kCIInputBackgroundImageKey: out, kCIInputMaskImageKey: glyphs])
+        }
+        if !holes.isEmpty {
+            let cut = holes.reduce(CIImage.empty()) {
+                constant(.black, alpha: 1, ciRect($1, in: extent)).composited(over: $0)
+            }
+            out = out.applyingFilter("CISourceOutCompositing", parameters: [kCIInputBackgroundImageKey: cut])
         }
         return out.cropped(to: extent)
     }

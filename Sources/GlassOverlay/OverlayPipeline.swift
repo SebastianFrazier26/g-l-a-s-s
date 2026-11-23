@@ -29,6 +29,9 @@ public final class OverlayPipeline: @unchecked Sendable {
     private var pool: CVPixelBufferPool?
     private var poolSize = CGSize.zero
     private var analysisTask: Task<Void, Never>?
+    private var holes: [CGRect] = []
+    private var backdropCoverage: CGRect?
+    private var paused = false
 
     public init(options: Options, softwareRendering: Bool = false) {
         self.options = options
@@ -45,13 +48,17 @@ public final class OverlayPipeline: @unchecked Sendable {
     /// Composites against the latest backdrop and returns a buffer ready for `CALayer.contents`.
     public func ingestWindow(_ buffer: CVPixelBuffer) -> CVPixelBuffer? {
         let window = CIImage(cvPixelBuffer: buffer)
-        let (bd, params, text) = lock.withLock {
+        let (bd, params, text, holes, coverage, paused) = lock.withLock {
             windowFrame = window
-            return (backdrop, options.parameters, options.textEnabled ? styles : [])
+            return (
+                backdrop, options.parameters, options.textEnabled ? styles : [], self.holes, backdropCoverage,
+                self.paused
+            )
         }
-        guard let bd, let out = outputBuffer(for: window.extent.size) else { return nil }
-        compositor.render(
-            compositor.compose(backdrop: bd, window: window, parameters: params, text: text), into: out)
+        guard !paused, let bd, let out = outputBuffer(for: window.extent.size) else { return nil }
+        let image = compositor.compose(
+            backdrop: bd, window: window, parameters: params, text: text, holes: holes, backdropCoverage: coverage)
+        compositor.render(image, into: out)
         return out
     }
 
@@ -70,6 +77,17 @@ public final class OverlayPipeline: @unchecked Sendable {
     }
 
     public func stop() { analysisTask?.cancel() }
+
+    /// Geometry in window-capture pixels (top-left): see `GlassCompositor.compose`.
+    public func setGeometry(holes: [CGRect], backdropCoverage: CGRect?) {
+        lock.withLock {
+            self.holes = holes
+            self.backdropCoverage = backdropCoverage
+        }
+    }
+
+    /// Skips compositing (and the GPU work) while the target is hidden or fully covered.
+    public func setPaused(_ value: Bool) { lock.withLock { paused = value } }
 
     var currentStyles: [TextStyle] { lock.withLock { styles } }
 

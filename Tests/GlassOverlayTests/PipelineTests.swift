@@ -66,3 +66,34 @@ struct PipelineTests {
         }
     }
 }
+
+@Suite("Overlay pipeline geometry and pausing")
+struct PipelineGeometryTests {
+    func solid(_ c: CGColor, _ w: Int, _ h: Int) -> CVPixelBuffer {
+        captureBuffer(width: w, height: h) { ctx in
+            ctx.setFillColor(c)
+            ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        }
+    }
+
+    @Test func holesReachTheOutput() throws {
+        var p = GlassParameters(mode: .uniform(alpha: 1))
+        p.tintOpacity = 0
+        let pipe = OverlayPipeline(options: .init(parameters: p), softwareRendering: true)
+        pipe.ingestBackdrop(solid(.black, 20, 20))
+        pipe.setGeometry(holes: [CGRect(x: 0, y: 0, width: 20, height: 40)], backdropCoverage: nil)
+        let out = try #require(pipe.ingestWindow(solid(.white, 40, 40)))
+        let img = try #require(RGBAImage(bgra: out))
+        #expect(img.pixel(5, 20).a == 0 && img.pixel(30, 20).a == 255)
+    }
+
+    @Test func pausedSkipsCompositing() {
+        let pipe = OverlayPipeline(
+            options: .init(parameters: GlassParameters(mode: .uniform(alpha: 1))), softwareRendering: true)
+        pipe.ingestBackdrop(solid(.black, 20, 20))
+        pipe.setPaused(true)
+        #expect(pipe.ingestWindow(solid(.white, 40, 40)) == nil)
+        pipe.setPaused(false)
+        #expect(pipe.ingestWindow(solid(.white, 40, 40)) != nil)
+    }
+}

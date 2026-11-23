@@ -1,6 +1,9 @@
 # g-l-a-s-s: design and feasibility
 
-> **Status: DRAFT. Needs Sebastian's sign-off.** The choice of architecture below is a
+> **Status: Option B approved 2026-11-23**, relayed via the orchestrating agent. The other open
+> questions (§6 and the overnight report) are still pending.
+>
+> *Original status:* DRAFT, needs Sebastian's sign-off. The choice of architecture below is a
 > recommendation, not a decision. Written 2026-11-23 by an agent working overnight. The web research
 > is dated then; the platform facts marked *SDK-verified* were checked against the local
 > macOS 26.4 SDK (Xcode 26.4, build 17E192, Swift 6.3) on this machine.
@@ -279,6 +282,25 @@ Built ahead of sign-off so it can be evaluated. Discard the branch if B is rejec
     exactly above the target;
   - real-world keying quality on gradients and vibrancy;
   - CPU/GPU cost.
+
+### MVP robustness (branch `mvp/overlay-b-robustness`)
+- **Multiple displays.**
+  - The backdrop is captured from the window's majority display, at that display's own scale.
+  - When the window changes display, the stream's content filter switches.
+  - The uncaptured part of a straddling window extends the nearest captured edge.
+  - *Limitation:* for a straddling window, the backdrop on the minority display is synthesised,
+    not real.
+- **Menus and popovers.** These, along with any window in front of the target, become transparent
+  holes in the overlay. This is robust even if z-ordering relative to another process misbehaves.
+  - *Limitation:* text inside popovers is not glassed or recoloured, because they are separate
+    windows. Glassing them too would mean a second overlay per child window.
+- **Robustness.**
+  - **Hidden or minimised windows:** compositing pauses.
+  - **Fully covered windows:** compositing pauses.
+  - **Capture errors:** restart with backoff.
+  - **Revoked permission:** clean exit.
+  - Capture itself keeps running while the window is paused. Stopping it would save more energy, at
+    the cost of a slower resume; measure first.
 
 ## 6. Assumptions made overnight (correct any)
 

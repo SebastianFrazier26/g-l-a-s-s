@@ -130,8 +130,16 @@ final class OverlayController {
     private var outputs: [FrameOutput] = []
     private var target: SCWindow?
     private var display: SCDisplay?
+    private var displayInfo: DisplayInfo?
     private var excluded: [SCWindow] = []
     private var lastSize: CGSize = .zero
+    private var currentFrame: CGRect = .zero
+    private var hidden = false
+    private var occlusionTimer: Timer?
+    private var restart = RestartPolicy()
+    private lazy var streamDelegate = StreamDelegate { [weak self] error in
+        Task { @MainActor in await self?.streamStopped(error) }
+    }
     private var frames = 0
     private var lastReport = Date()
 
@@ -154,12 +162,14 @@ final class OverlayController {
             exit(1)
         }
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        let info = DisplayLayout.best(for: snap.frame, among: DisplayLayout.systemDisplays())
         guard let target = content.windows.first(where: { $0.windowID == snap.id }),
-            let display = content.displays.first(where: { $0.frame.intersects(snap.frame) })
+            let info, let display = content.displays.first(where: { $0.displayID == info.id })
         else {
-            print("ScreenCaptureKit can't see window \(snap.id)")
+            print("ScreenCaptureKit can't see window \(snap.id) on any display")
             exit(1)
         }
+        displayInfo = info
         self.target = target
         self.display = display
 
@@ -175,10 +185,10 @@ final class OverlayController {
 
         let backdrop = SCStream(
             filter: SCContentFilter(display: display, excludingWindows: excluded),
-            configuration: backdropConfig(for: snap.frame), delegate: nil)
+            configuration: backdropConfig(for: snap.frame), delegate: streamDelegate)
         let window = SCStream(
             filter: SCContentFilter(desktopIndependentWindow: target),
-            configuration: windowConfig(for: snap.frame.size), delegate: nil)
+            configuration: windowConfig(for: snap.frame.size), delegate: streamDelegate)
         try addOutput(to: backdrop, role: .backdrop)
         try addOutput(to: window, role: .window)
         try await backdrop.startCapture()
@@ -186,7 +196,12 @@ final class OverlayController {
         backdropStream = backdrop
         windowStream = window
         lastSize = snap.frame.size
+        currentFrame = snap.frame
+        updateGeometry()
         pipeline.startAnalysis()
+        occlusionTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateGeometry() }
+        }
 
         let tracker = WindowTracker(windowID: snap.id) { [weak self] event in self?.handle(event) }
         tracker.start(hz: 60)
@@ -199,35 +214,92 @@ final class OverlayController {
         case .closed:
             print("target window closed")
             exit(0)
+        case .hidden:
+            hidden = true
+            pipeline.setPaused(true)
+            overlay?.orderOut(nil)
         case .changed(let frame):
+            hidden = false
+            currentFrame = frame
             overlay?.follow(cgFrame: frame, targetWindowNumber: Int(tracker?.windowID ?? 0))
             let sizeChanged = frame.size != lastSize
             lastSize = frame.size
+            let newInfo = DisplayLayout.best(for: frame, among: DisplayLayout.systemDisplays())
+            let displayChanged = newInfo != nil && newInfo?.id != displayInfo?.id
+            if let newInfo { displayInfo = newInfo }
+            updateGeometry()
             Task {
+                if displayChanged { await switchBackdropDisplay() }
                 try? await backdropStream?.updateConfiguration(backdropConfig(for: frame))
-                if sizeChanged { try? await windowStream?.updateConfiguration(windowConfig(for: frame.size)) }
+                if sizeChanged || displayChanged {
+                    try? await windowStream?.updateConfiguration(windowConfig(for: frame.size))
+                }
             }
         }
     }
 
-    private var scale: Double { Double(overlay?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2) }
+    /// Holes for windows in front of the target, backdrop coverage when straddling displays, and
+    /// pausing while fully covered. Polled at 10 Hz: menus and popovers open at human speed.
+    private func updateGeometry() {
+        guard !hidden, let tracker, let displayInfo else { return }
+        let s = scale
+        let px = { (r: CGRect) in CGRect(x: r.minX * s, y: r.minY * s, width: r.width * s, height: r.height * s) }
+        let occluders = Occlusion.occluders(
+            of: tracker.windowID, in: WindowList.allOnScreen(), ignoringPID: ProcessInfo.processInfo.processIdentifier)
+        let coverage = DisplayLayout.coverage(window: currentFrame, display: displayInfo)
+        let full = CGRect(origin: .zero, size: currentFrame.size)
+        pipeline.setGeometry(holes: occluders.map(px), backdropCoverage: coverage == full ? nil : px(coverage))
+        pipeline.setPaused(Occlusion.isFullyCovered(currentFrame.size, by: occluders))
+    }
+
+    private func switchBackdropDisplay() async {
+        guard let displayInfo,
+            let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
+            let display = content.displays.first(where: { $0.displayID == displayInfo.id })
+        else { return }
+        self.display = display
+        try? await backdropStream?.updateContentFilter(SCContentFilter(display: display, excludingWindows: excluded))
+        print("target moved to display \(displayInfo.id) (scale \(displayInfo.scale))")
+    }
+
+    private func streamStopped(_ error: Error) async {
+        print("capture stopped: \(error.localizedDescription)")
+        guard CGPreflightScreenCaptureAccess() else {
+            print("Screen Recording was revoked; exiting. Re-enable it and relaunch.")
+            exit(3)
+        }
+        guard let delay = restart.nextDelay() else {
+            print("capture keeps failing; giving up")
+            exit(4)
+        }
+        try? await Task.sleep(for: .seconds(delay))
+        do {
+            try await backdropStream?.startCapture()
+            try await windowStream?.startCapture()
+            restart.reset()
+            print("capture restarted")
+        } catch {
+            await streamStopped(error)
+        }
+    }
+
+    /// Pixels per point of the display the target is on (not the main screen's).
+    private var scale: Double { displayInfo?.scale ?? 2 }
 
     private func backdropConfig(for frame: CGRect) -> SCStreamConfiguration {
         let c = SCStreamConfiguration()
-        let origin = display?.frame.origin ?? .zero
-        c.sourceRect = CGRect(
-            x: frame.minX - origin.x, y: frame.minY - origin.y, width: frame.width, height: frame.height)
+        guard let displayInfo else { return c }
+        let source = DisplayLayout.sourceRect(window: frame, display: displayInfo)
+        c.sourceRect = source
         // Blurred anyway, so half resolution costs nothing visible.
-        c.width = max(2, Int(frame.width * scale / 2))
-        c.height = max(2, Int(frame.height * scale / 2))
+        (c.width, c.height) = DisplayLayout.pixelSize(source.size, scale: displayInfo.scale, factor: 0.5)
         common(c)
         return c
     }
 
     private func windowConfig(for size: CGSize) -> SCStreamConfiguration {
         let c = SCStreamConfiguration()
-        c.width = max(2, Int(size.width * scale))
-        c.height = max(2, Int(size.height * scale))
+        (c.width, c.height) = DisplayLayout.pixelSize(size, scale: scale)
         common(c)
         return c
     }
@@ -272,6 +344,14 @@ final class OverlayController {
 /// not written after delivery, so sharing them is safe.
 struct Unchecked<T>: @unchecked Sendable {
     let value: T
+}
+
+final class StreamDelegate: NSObject, SCStreamDelegate, @unchecked Sendable {
+    private let onStop: @Sendable (Error) -> Void
+
+    init(onStop: @escaping @Sendable (Error) -> Void) { self.onStop = onStop }
+
+    func stream(_ stream: SCStream, didStopWithError error: Error) { onStop(error) }
 }
 
 final class FrameOutput: NSObject, SCStreamOutput, @unchecked Sendable {

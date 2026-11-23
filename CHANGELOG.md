@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-11-23 (MVP robustness, branch `mvp/overlay-b-robustness`)
+
+Option B was approved, relayed via the orchestrating agent. Other design questions are still open.
+
+- **Multiple displays.** `DisplayLayout` picks the display the target window is mostly on.
+  - The backdrop is captured from that display, at that display's scale factor.
+  - When the window moves to another display, the backdrop switches with it.
+  - A window straddling two displays gets a real backdrop for the captured part, and the nearest
+    edge is extended over the rest.
+- **Menus, popovers and covering windows.** `Occlusion` finds windows in front of the target: the
+  app's own menus, popovers and sheets, plus other apps' windows.
+  - The overlay cuts holes there, so those windows stay visible and clickable as themselves.
+  - Compositing pauses while the target is fully covered.
+- **Robustness.**
+  - The tracker reports `.hidden`, covering minimised windows, other Spaces and hidden apps; the
+    overlay hides and compositing pauses until the window returns.
+  - Capture streams that stop with an error restart with exponential backoff (`RestartPolicy`).
+  - Revoking Screen Recording exits cleanly with a message.
+
 ## 2026-11-23 (later): branch `spike/overlay-b`, pending architecture sign-off
 
 ### New `GlassOverlay` library (design option B)

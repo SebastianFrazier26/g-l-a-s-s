@@ -81,6 +81,8 @@ public enum WindowList {
 public final class WindowTracker {
     public enum Event: Equatable, Sendable {
         case changed(CGRect)
+        /// Minimised, on another Space, or app hidden: pause and hide the overlay, keep tracking.
+        case hidden
         case closed
     }
 
@@ -89,6 +91,7 @@ public final class WindowTracker {
     private let onEvent: (Event) -> Void
     private var last: CGRect?
     private var closed = false
+    private var hidden = false
     private var timer: Timer?
 
     public init(
@@ -109,6 +112,15 @@ public final class WindowTracker {
             onEvent(.closed)
             return
         }
+        guard snap.isOnScreen else {
+            if !hidden {
+                hidden = true
+                last = nil  // force a `.changed` on return, even at the same frame
+                onEvent(.hidden)
+            }
+            return
+        }
+        hidden = false
         if snap.frame != last {
             last = snap.frame
             onEvent(.changed(snap.frame))
