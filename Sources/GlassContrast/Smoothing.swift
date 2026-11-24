@@ -136,6 +136,15 @@ public struct AdaptiveTextColor: Sendable {
         solver.worstCase(text: current, background: veil(background, scrim, scrimOpacity)) < solver.target.threshold
     }
 
+    /// Call when the text moves to a display with a different gamut. A P3 target can't be shown on
+    /// an sRGB display, so the next update re-solves unconditionally; the spring eases from where it is.
+    public mutating func setGamut(_ gamut: ColorGamut) {
+        guard gamut != solver.gamut else { return }
+        solver.gamut = gamut
+        target = gamut.clamp(target.oklch.gamutMapped(to: gamut).rgb)
+        polarity = nil
+    }
+
     public mutating func update(background: BackgroundSample, dt: Double) -> RGB {
         let veiledNow = veil(background, targetScrim, targetScrimOpacity)
         let violated = solver.worstCase(text: target, background: veiledNow) < solver.target.threshold
@@ -178,7 +187,7 @@ public struct AdaptiveTextColor: Sendable {
         scrimOpacitySpring.omega = rate
         // Mid-transition points can leave the gamut (chroma held at a lightness that can't carry it);
         // reducing chroma keeps hue, where per-channel clipping would skew it.
-        current = spring.step(toward: target.oklab, dt: dt).lch.gamutMapped().rgb.clamped()
+        current = solver.gamut.clamp(spring.step(toward: target.oklab, dt: dt).lch.gamutMapped(to: solver.gamut).rgb)
         scrim = scrimColorSpring.step(toward: targetScrim.oklab, dt: dt).rgb.clamped()
         scrimOpacity = min(
             max(scrimOpacitySpring.step(toward: OKLab(L: targetScrimOpacity, a: 0, b: 0), dt: dt).L, 0), 1)

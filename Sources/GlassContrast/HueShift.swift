@@ -16,16 +16,18 @@ public struct HueShiftPolicy: Sendable, Hashable {
         case lightnessOnly
         /// Search all allowed hues and chromas for the passing colour with the smallest ΔE_OK.
         case nearest
-        /// As `nearest`, but hue may only rotate from the original toward the complement of the
-        /// background's hue, never toward the background's own hue. This is an option, not the
-        /// default: the metric is luminance-only, so the restriction buys no measured contrast and
-        /// usually costs a larger change. Over an achromatic background it behaves as `nearest`.
+        /// Owner's default (2026-11-23). Hue may only rotate from the original toward the complement of
+        /// the backdrop's mean hue, never toward the backdrop's own hue, and within that arc the
+        /// smallest change wins. Hue contrast against the backdrop then adds to the luminance contrast
+        /// the metric measures. Over an achromatic backdrop there is no complement, so it behaves as
+        /// `nearest` for coloured text and adds no tint to grey text.
         case complementary
     }
 
     public var strategy: Strategy
     /// How far chroma may rise above the original, in OKLCH C. With 0, the text never becomes more
-    /// saturated than it started, and grey text stays grey.
+    /// saturated than it started, and grey text stays grey. The owner's +0.03 is about 1.5 JND: a
+    /// tint you notice side by side, not a recolour.
     public var maxChromaGain: Double
     /// Largest hue rotation in degrees, so a red error can't drift into a cyan.
     public var maxHueShift: Double
@@ -38,14 +40,19 @@ public struct HueShiftPolicy: Sendable, Hashable {
     /// really loses is colourfulness, near L = 0 or 1 where the gamut forces chroma toward grey.
     /// Weighting that loss is what lets a hue with more gamut room at the new lightness win.
     public var chromaLossWeight: Double
+    /// Keep saturated reds (OKLCH hue 345°–45°, C ≥ 0.1) inside the red band 350°–45°, so an error
+    /// colour can turn crimson or vermilion but not orange (a warning) or magenta. Narrows the
+    /// strategy's own range and never widens it.
+    public var guardsSemanticRed: Bool
     /// Weight on closeness to the previous target when choosing among hue/chroma candidates. It
     /// stops two near-equal hue branches (leaning one way or the other) from alternating frame to frame.
     public var continuity: Double
 
     public init(
-        strategy: Strategy, maxChromaGain: Double = 0, maxHueShift: Double = 60, advantage: Double = 0.03,
-        chromaLossWeight: Double = 2, continuity: Double = 0.15
+        strategy: Strategy, maxChromaGain: Double = 0.03, maxHueShift: Double = 45, advantage: Double = 0.03,
+        chromaLossWeight: Double = 2, guardsSemanticRed: Bool = true, continuity: Double = 0.15
     ) {
+        self.guardsSemanticRed = guardsSemanticRed
         self.chromaLossWeight = chromaLossWeight
         self.strategy = strategy
         self.maxChromaGain = maxChromaGain
@@ -55,7 +62,12 @@ public struct HueShiftPolicy: Sendable, Hashable {
     }
 
     public static let lightnessOnly = HueShiftPolicy(strategy: .lightnessOnly)
-    public static let `default` = HueShiftPolicy(strategy: .nearest)
+    /// Owner decisions 2026-11-23: complementary, +0.03 chroma, 45° cap.
+    public static let `default` = HueShiftPolicy(strategy: .complementary)
+
+    static let redBand = (low: 350.0, high: 45.0)
+
+    static func isSemanticRed(_ c: OKLCH) -> Bool { c.C >= 0.1 && (c.h >= 345 || c.h <= 45) }
 
     /// ΔE_OK split into lightness, chroma and hue parts, with chroma loss scaled by `chromaLossWeight`.
     public func cost(from original: OKLCH, to candidate: OKLCH) -> Double {
@@ -79,25 +91,47 @@ extension ContrastSolver {
         let policy = hueShift
         let cMax = original.C + max(policy.maxChromaGain, 0)
         // With no chroma to spend there is no hue to move, so the lightness-only result is optimal.
-        guard cMax > 0.01, let yStar = boundaryLuminance(side, bg) else { return nil }
+        guard cMax > 0.01 - 1e-12, let yStar = boundaryLuminance(side, bg) else { return nil }
 
         let span = min(max(policy.maxHueShift, 0), 180)
-        let range: ClosedRange<Double>
-        switch policy.strategy {
-        case .lightnessOnly: return nil
-        case .nearest: range = -span...span
-        case .complementary:
-            if let bgHue = Self.dominantHue(background) {
-                let away = signedHueDelta(from: bgHue, to: original.h)
-                let toComplement = min(180 - abs(away), span)
-                range = away >= 0 ? 0...toComplement : -toComplement...0
-            } else {
-                range = -span...span
+        let bgHue = policy.strategy == .complementary ? Self.dominantHue(background) : nil
+        var origin = original
+        var range: ClosedRange<Double>
+        if original.C < 0.01 {
+            // Grey text has no hue to keep, so any tint is a free choice: the complement of the
+            // backdrop, or none at all when the backdrop is grey too.
+            switch policy.strategy {
+            case .lightnessOnly: return nil
+            case .nearest: range = -180...180
+            case .complementary:
+                guard let bgHue else { return nil }
+                origin.h = (bgHue + 180).truncatingRemainder(dividingBy: 360)
+                range = 0...0
+            }
+        } else {
+            switch policy.strategy {
+            case .lightnessOnly: return nil
+            case .nearest: range = -span...span
+            case .complementary:
+                if let bgHue {
+                    let away = signedHueDelta(from: bgHue, to: original.h)
+                    let toComplement = min(180 - abs(away), span)
+                    range = away >= 0 ? 0...toComplement : -toComplement...0
+                } else {
+                    range = -span...span
+                }
+            }
+            if policy.guardsSemanticRed && HueShiftPolicy.isSemanticRed(original) {
+                // min/max with 0 so a red just outside the band is never pushed into it, only held.
+                let lo = max(range.lowerBound, min(0, signedHueDelta(from: original.h, to: HueShiftPolicy.redBand.low)))
+                let hi = min(
+                    range.upperBound, max(0, signedHueDelta(from: original.h, to: HueShiftPolicy.redBand.high)))
+                range = lo <= hi ? lo...hi : 0...0
             }
         }
 
-        func evaluate(_ dh: Double, _ c: Double) -> (Candidate, Double)? {
-            let h = (original.h + dh).truncatingRemainder(dividingBy: 360)
+        func candidate(_ dh: Double, _ c: Double) -> (Candidate, Double)? {
+            let h = (origin.h + dh).truncatingRemainder(dividingBy: 360)
             guard let cand = point(hue: h < 0 ? h + 360 : h, chroma: c, yStar: yStar, side: side, bg) else {
                 return nil
             }
@@ -105,39 +139,47 @@ extension ContrastSolver {
             if let previous { cost += policy.continuity * cand.color.oklab.distance(to: previous) }
             return (cand, cost)
         }
-
-        var best: (dh: Double, c: Double, cand: Candidate, cost: Double)?
-        let hueStep = 15.0
-        let hueCount = max(Int((range.upperBound - range.lowerBound) / hueStep), 1)
-        let chromaLevels = 4
-        for i in 0...hueCount {
-            let dh = range.lowerBound + (range.upperBound - range.lowerBound) * Double(i) / Double(hueCount)
-            for k in 0...chromaLevels {
-                let c = cMax * Double(k) / Double(chromaLevels)
-                if k == 0 && i > 0 { continue }  // C = 0 is the same grey at every hue
-                if let (cand, cost) = evaluate(dh, c), cost < (best?.cost ?? .infinity) {
-                    best = (dh, c, cand, cost)
-                }
+        // Losing chroma is what the cost punishes, so at a given hue the best answer sits at the
+        // most chroma that still fits the gamut at the lightness the target needs. Fixed chroma
+        // levels kept landing inside the gamut instead of on its edge, and lost to lightness-only.
+        func atEdge(_ dh: Double, upTo cap: Double) -> (Candidate, Double)? {
+            if let hit = candidate(dh, cap) { return hit }
+            var lo = 0.0, hi = cap
+            guard candidate(dh, lo) != nil else { return nil }
+            for _ in 0..<10 {
+                let mid = (lo + hi) / 2
+                if candidate(dh, mid) != nil { lo = mid } else { hi = mid }
             }
+            return candidate(dh, lo)
+        }
+        func evaluate(_ dh: Double) -> (Candidate, Double)? {
+            guard original.C > 0, cMax > original.C + 1e-9 else { return atEdge(dh, upTo: cMax) }
+            guard let kept = atEdge(dh, upTo: original.C) else { return nil }
+            // Where the gamut already binds below the original chroma, a higher cap finds the same edge.
+            guard kept.0.color.oklch.C >= original.C - 1e-6, let gained = atEdge(dh, upTo: cMax) else { return kept }
+            return gained.1 < kept.1 ? gained : kept
+        }
+
+        let width = range.upperBound - range.lowerBound
+        let steps = max(Int((width / 15).rounded(.up)), 1)
+        var best: (dh: Double, cand: Candidate, cost: Double)?
+        for i in 0...steps {
+            let dh = range.lowerBound + width * Double(i) / Double(steps)
+            if let (cand, cost) = evaluate(dh), cost < (best?.cost ?? .infinity) { best = (dh, cand, cost) }
         }
         guard var b = best else { return nil }
 
-        // Pattern search from the best grid point: the grid only has to land in the right basin.
-        var dhStep = hueStep / 2, cStep = cMax / Double(chromaLevels) / 2
-        while dhStep > 0.25 || cStep > 0.001 {
+        // Refine hue around the best grid point; the grid only has to land in the right basin.
+        var step = width / Double(steps) / 2
+        while step > 0.25 {
             var improved = false
-            for (ddh, dc) in [(dhStep, 0.0), (-dhStep, 0.0), (0.0, cStep), (0.0, -cStep)] {
-                let dh = min(max(b.dh + ddh, range.lowerBound), range.upperBound)
-                let c = min(max(b.c + dc, 0), cMax)
-                if let (cand, cost) = evaluate(dh, c), cost < b.cost - 1e-9 {
-                    b = (dh, c, cand, cost)
+            for dh in [b.dh - step, b.dh + step] where range.contains(dh) {
+                if let (cand, cost) = evaluate(dh), cost < b.cost - 1e-9 {
+                    b = (dh, cand, cost)
                     improved = true
                 }
             }
-            if !improved {
-                dhStep /= 2
-                cStep /= 2
-            }
+            if !improved { step /= 2 }
         }
         return b.cand
     }
@@ -164,16 +206,16 @@ extension ContrastSolver {
     private func point(hue: Double, chroma: Double, yStar: Double, side: Polarity, _ bg: BackgroundSample.Summary)
         -> Candidate?
     {
-        func lum(_ L: Double) -> Double { target.luminance(OKLCH(L: L, C: chroma, h: hue).rgb.clamped()) }
+        func lum(_ L: Double) -> Double { target.luminance(gamut.clamp(OKLCH(L: L, C: chroma, h: hue).rgb)) }
         var lo = 0.0, hi = 1.0
-        for _ in 0..<26 {
+        for _ in 0..<22 {
             let mid = (lo + hi) / 2
             if lum(mid) >= yStar { hi = mid } else { lo = mid }
         }
         let L = side == .lighter ? hi : lo
         let lch = OKLCH(L: L, C: chroma, h: hue)
-        guard lch.isInGamut else { return nil }
-        let color = lch.rgb.clamped()
+        guard gamut.contains(lch) else { return nil }
+        let color = lch.rgb
         let (s, p) = worstCase(color, bg)
         guard p == side, s >= target.threshold else { return nil }
         return Candidate(color: color, polarity: side, score: s, feasible: true, hueShifted: true)

@@ -109,6 +109,8 @@ public struct TextLayerModel: Sendable {
     public var parameters: GlassParameters
     public var urgentOmega: Double?
     public var hueShift: HueShiftPolicy
+    /// Gamut of the display the window is on. Changing it re-solves every region on its next update.
+    public var gamut: ColorGamut = .sRGB
     public var allowScrim = true
     private var regions: [TrackedRegion] = []
     private var nextID = 0
@@ -154,8 +156,10 @@ public struct TextLayerModel: Sendable {
             var tracker =
                 trackers[region.id].flatMap { $0.original.oklab.distance(to: ink.oklab) < 0.05 ? $0 : nil }
                 ?? AdaptiveTextColor(
-                    original: ink, solver: ContrastSolver(target: target, hueShift: hueShift), allowScrim: allowScrim,
+                    original: ink, solver: ContrastSolver(target: target, hueShift: hueShift, gamut: gamut),
+                    allowScrim: allowScrim,
                     urgentOmega: urgentOmega)
+            tracker.setGamut(gamut)
             _ = tracker.update(background: behind, dt: dt)
             trackers[region.id] = tracker
             styles.append(

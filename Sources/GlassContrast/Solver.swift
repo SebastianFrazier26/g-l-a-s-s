@@ -34,11 +34,14 @@ public struct ContrastSolver: Sendable {
     /// ΔE_OK advantage the non-preferred polarity must have before the solver switches to it.
     public var polarityHysteresis: Double
     public var hueShift: HueShiftPolicy
+    /// Gamut of the display the text is drawn on; results never leave it.
+    public var gamut: ColorGamut
 
     public init(
         target: ContrastTarget, coverage: Double = 0.95, polarityHysteresis: Double = 0.05,
-        hueShift: HueShiftPolicy = .default
+        hueShift: HueShiftPolicy = .default, gamut: ColorGamut = .sRGB
     ) {
+        self.gamut = gamut
         self.target = target
         self.coverage = coverage
         self.polarityHysteresis = polarityHysteresis
@@ -51,7 +54,7 @@ public struct ContrastSolver: Sendable {
         text: RGB, background: BackgroundSample, preferred: Polarity? = nil, preferredHueShift: Bool? = nil,
         previous: RGB? = nil
     ) -> ContrastSolution {
-        let original = text.clamped()
+        let original = gamut.clamp(text)
         let bg = background.summary(coverage: coverage, luminance: target.luminance)
 
         let (startScore, startSide) = worstCase(original, bg)
@@ -103,7 +106,7 @@ public struct ContrastSolver: Sendable {
     /// Worst-case score of `text` over the covered background. Text whose luminance falls inside the
     /// background's range scores 0: some background pixel matches it.
     public func worstCase(text: RGB, background: BackgroundSample) -> Double {
-        worstCase(text.clamped(), background.summary(coverage: coverage, luminance: target.luminance)).0
+        worstCase(gamut.clamp(text), background.summary(coverage: coverage, luminance: target.luminance)).0
     }
 
     func worstCase(_ text: RGB, _ bg: BackgroundSample.Summary) -> (Double, Polarity) {
@@ -127,7 +130,7 @@ public struct ContrastSolver: Sendable {
 
     private func search(from lch: OKLCH, toward side: Polarity, _ bg: BackgroundSample.Summary) -> Candidate {
         func color(at L: Double) -> RGB {
-            OKLCH(L: L, C: min(lch.C, Gamut.maxChroma(lightness: L, hue: lch.h)), h: lch.h).rgb.clamped()
+            gamut.clamp(OKLCH(L: L, C: min(lch.C, Gamut.maxChroma(lightness: L, hue: lch.h, in: gamut)), h: lch.h).rgb)
         }
         func score(_ c: RGB) -> Double {
             let (s, p) = worstCase(c, bg)

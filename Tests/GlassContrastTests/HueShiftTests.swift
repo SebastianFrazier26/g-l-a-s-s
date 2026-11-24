@@ -8,7 +8,8 @@ struct HueShiftTests {
     let fixed = ContrastSolver(target: .apca(60), hueShift: .lightnessOnly)
 
     // Mid blue over a mid-blue backdrop: lightness alone must climb to a near-white with almost no
-    // chroma left; turning toward cyan, which has far more gamut room near white, keeps it a colour.
+    // chroma left; turning toward azure, which has more gamut room near white, keeps it a colour.
+    // The backdrop's hue sits just above the text's, so the complementary rule also turns this way.
     let washedOut = (text: RGB(hex: 0x0066CC), bg: BackgroundSample.uniform(RGB(hex: 0x5577AA)))
 
     @Test func prefersLightnessOnlyWhenItKeepsTheColour() {
@@ -22,8 +23,9 @@ struct HueShiftTests {
         let sol = shifting.solve(text: washedOut.text, background: washedOut.bg)
         #expect(sol.meetsTarget && sol.hueShifted && sol.color.isInGamut)
         #expect(APCA.lightnessContrast(text: sol.color, background: RGB(hex: 0x5577AA)).magnitude >= 60 - 1e-9)
-        #expect(sol.color.oklch.C > 2 * plain.color.oklch.C)
-        #expect(hueDistance(sol.color.oklch.h, washedOut.text.oklch.h) <= 60 + 0.5)
+        // Measured 0.076 against 0.039. Under the old 60° cap it reached cyan at 0.15 (more than 2×).
+        #expect(sol.color.oklch.C > 1.5 * plain.color.oklch.C)
+        #expect(hueDistance(sol.color.oklch.h, washedOut.text.oklch.h) <= 45 + 0.5)
         let policy = shifting.hueShift, o = washedOut.text.oklch
         #expect(
             policy.cost(from: o, to: sol.color.oklch) < policy.cost(from: o, to: plain.color.oklch) - policy.advantage)
@@ -45,9 +47,51 @@ struct HueShiftTests {
         }
     }
 
-    @Test func greyTextStaysGreyWithoutChromaGain() {
+    @Test func ownerDefaults() {
+        let p = HueShiftPolicy.default
+        #expect(p.strategy == .complementary && p.maxChromaGain == 0.03 && p.maxHueShift == 45)
+        #expect(p.guardsSemanticRed)
+    }
+
+    @Test func greyTextOverGreyBackdropStaysGrey() {
+        // No backdrop hue means no complement to tint toward.
         let sol = shifting.solve(text: RGB(hex: 0x888888), background: .uniform(RGB(hex: 0x777777)))
         #expect(sol.meetsTarget && !sol.hueShifted && sol.color.oklch.C < 1e-3)
+    }
+
+    @Test func greyTextTintIsTheBackdropComplementAndSubtle() {
+        // Pull the search hard toward a tinted colour at an unrelated hue (via `previous`): the
+        // answer may take on chroma, but only at the backdrop's complement and only up to the gain.
+        let policy = HueShiftPolicy(strategy: .complementary, continuity: 10)
+        let s = ContrastSolver(target: .apca(60), hueShift: policy)
+        let backdrop = BackgroundSample.uniform(RGB(hex: 0x2244AA))
+        let summary = backdrop.summary(coverage: s.coverage, luminance: s.target.luminance)
+        let lure = OKLCH(L: 0.85, C: 0.03, h: 140).lab
+        let cand = try! #require(
+            s.shiftSearch(
+                from: RGB(hex: 0x888888).oklch, toward: .lighter, summary, background: backdrop, previous: lure))
+        let out = cand.color.oklch
+        let complement = (ContrastSolver.dominantHue(backdrop)! + 180).truncatingRemainder(dividingBy: 360)
+        #expect(out.C > 0.01 && out.C <= 0.03 + 1e-6)
+        #expect(hueDistance(out.h, complement) < 0.5)
+    }
+
+    @Test func semanticRedStaysRed() {
+        // Over a blue backdrop the complementary arc from red points toward amber (measured: 72°
+        // without the guard). The guard keeps it inside the red band.
+        let text = RGB(hex: 0xE53935), bg = BackgroundSample.uniform(RGB(hex: 0x2050A0))
+        let guarded = shifting.solve(text: text, background: bg).color.oklch.h
+        let open = ContrastSolver(
+            target: .apca(60), hueShift: HueShiftPolicy(strategy: .complementary, guardsSemanticRed: false)
+        ).solve(text: text, background: bg)
+        #expect(guarded >= 350 || guarded <= 45)
+        #expect(open.hueShifted && open.color.oklch.h > 45)
+    }
+
+    @Test func nonRedsAreNotHeldToTheRedBand() {
+        #expect(!HueShiftPolicy.isSemanticRed(RGB(hex: 0xFF8800).oklch))
+        #expect(!HueShiftPolicy.isSemanticRed(RGB(hex: 0xAA8888).oklch))  // greyish pink: too little chroma
+        #expect(HueShiftPolicy.isSemanticRed(RGB(hex: 0xFF0000).oklch))
     }
 
     @Test func preferredModeHoldsInsideTheHysteresisBand() {
@@ -101,9 +145,18 @@ struct HueShiftTests {
             guard sol.hueShifted else { continue }
             let o = text.oklch, n = sol.color.oklch
             #expect(n.C <= o.C + policy.maxChromaGain + 1e-6)
+            let bgHue = strategy == .complementary ? ContrastSolver.dominantHue(sample) : nil
+            if o.C < 0.01 {
+                // Grey text: hue is a free choice, so the rule is about where any tint points.
+                if let bgHue, n.C > 0.005 { #expect(hueDistance(n.h, bgHue + 180) < 1) }
+                continue
+            }
             #expect(hueDistance(n.h, o.h) <= policy.maxHueShift + 0.5)
-            if strategy == .complementary, let bgHue = ContrastSolver.dominantHue(sample) {
+            if let bgHue {
                 #expect(abs(signedHueDelta(from: bgHue, to: n.h)) >= abs(signedHueDelta(from: bgHue, to: o.h)) - 0.5)
+            }
+            if HueShiftPolicy.isSemanticRed(o) && (o.h >= 350 || o.h <= 45) {
+                #expect(n.h >= 350 - 0.5 || n.h <= 45 + 0.5)
             }
         }
     }

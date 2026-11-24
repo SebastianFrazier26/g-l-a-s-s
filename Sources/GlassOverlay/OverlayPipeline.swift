@@ -33,6 +33,7 @@ public final class OverlayPipeline: @unchecked Sendable {
     private var holes: [CGRect] = []
     private var backdropCoverage: CGRect?
     private var paused = false
+    private var displayGamut = ColorGamut.sRGB
 
     public init(options: Options, softwareRendering: Bool = false) {
         self.options = options
@@ -40,6 +41,14 @@ public final class OverlayPipeline: @unchecked Sendable {
         textModel = TextLayerModel(
             target: options.target, parameters: options.parameters, urgentOmega: options.urgentOmega,
             hueShift: options.hueShift)
+    }
+
+    /// Call when the window lands on a display (at start and whenever it moves to another one).
+    public func setDisplayGamut(_ gamut: ColorGamut) {
+        lock.withLock {
+            textModel.gamut = gamut
+            displayGamut = gamut
+        }
     }
 
     public func ingestBackdrop(_ buffer: CVPixelBuffer) {
@@ -50,17 +59,17 @@ public final class OverlayPipeline: @unchecked Sendable {
     /// Composites against the latest backdrop and returns a buffer ready for `CALayer.contents`.
     public func ingestWindow(_ buffer: CVPixelBuffer) -> CVPixelBuffer? {
         let window = CIImage(cvPixelBuffer: buffer)
-        let (bd, params, text, holes, coverage, paused) = lock.withLock {
+        let (bd, params, text, holes, coverage, paused, gamut) = lock.withLock {
             windowFrame = window
             return (
                 backdrop, options.parameters, options.textEnabled ? styles : [], self.holes, backdropCoverage,
-                self.paused
+                self.paused, displayGamut
             )
         }
         guard !paused, let bd, let out = outputBuffer(for: window.extent.size) else { return nil }
         let image = compositor.compose(
             backdrop: bd, window: window, parameters: params, text: text, holes: holes, backdropCoverage: coverage)
-        compositor.render(image, into: out)
+        compositor.render(image, into: out, gamut: gamut)
         return out
     }
 

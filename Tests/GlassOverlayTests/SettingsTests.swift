@@ -85,7 +85,7 @@ struct SettingsTests {
 @Suite("Hue-shift setting")
 struct HueShiftSettingTests {
     @Test func ownerDefaultAllowsHueShift() {
-        #expect(OwnerDefaults.hueShift.strategy == .nearest)
+        #expect(OwnerDefaults.hueShift.strategy == .complementary)
         let model = TextLayerModel(target: .apca(60), parameters: GlassParameters(mode: .uniform(alpha: 0.5)))
         #expect(model.hueShift == OwnerDefaults.hueShift)
     }

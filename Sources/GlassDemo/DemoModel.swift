@@ -55,7 +55,7 @@ final class DemoModel {
         let solver = ContrastSolver(target: .apca(60))
         let specs: [(String, UInt32, CGFloat)] = [
             ("Liquid glass, readable text", 0x2D5BD8, 30),
-            ("Brand orange keeps its hue", 0xF08A24, 22),
+            ("Brand orange stays colourful", 0xF08A24, 22),
             ("Quiet secondary grey label", 0x8A8A8A, 18),
             ("Original colour, never adapted", 0x2D5BD8, 16),
         ]
