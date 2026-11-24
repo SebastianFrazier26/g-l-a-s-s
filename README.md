@@ -20,7 +20,7 @@ Early. Nothing is released and nothing is signed.
 |---|---|
 | `GlassContrast`: colour engine (OKLab/OKLCH, WCAG, APCA, solver, smoothing) | built, tested |
 | `GlassDemo`: SwiftUI glass window over a moving backdrop | built, runs |
-| `GlassOverlay` + `GlassCaptureSpike`: overlay over *another* app's window (branch `spike/overlay-b`) | tracking, compositing and text layer unit-tested on synthetic frames; live capture not yet run (needs permission) |
+| `GlassOverlay` + `GlassCaptureSpike`: overlay over *another* app's window (branch `spike/overlay-b`) | tracking, compositing and text layer unit-tested on synthetic frames; first live run 2026-11-23, fixes in `docs/perf.md` |
 | Real app for "any window" | design awaiting sign-off: [`docs/DESIGN.md`](docs/DESIGN.md) |
 
 ### Why "any window" is hard
@@ -70,7 +70,7 @@ swift run GlassDemo --snapshot demo.png                 # headless contact sheet
 
 > Branches `spike/overlay-b` and later. This is DESIGN option B, which was approved on 2026-11-23.
 
-The spike glasses one window of another app. It mirrors that window over its own blurred backdrop
+The spike glasses other apps' windows, one or several from a single process. It mirrors each window over its own blurred backdrop
 (the overlay lets clicks through), makes the window's background see-through, and recolours its
 text. Capturing other windows needs **Screen Recording**. macOS grants that to a bundled, signed
 `.app`, not to a bare binary, so first build one:
@@ -98,6 +98,9 @@ scripts/bundle-spike.sh                      # → build/GlassCaptureSpike.app (
    open build/GlassCaptureSpike.app --args --window TextEdit
    tail -f ~/Library/Logs/g-l-a-s-s/spike.log
    ```
+   - To glass several windows at once, repeat the flag: `--window TextEdit --window Notes`. One
+     process handles them all and shares one backdrop capture per display.
+     `scripts/glass-test.sh` does this for TextEdit, Notes and Finder.
    - Transparency is a setting: `--mode keyed` (the default) or `--mode uniform --alpha 0.55`.
    - Other options: `--key FFFFFF`, `--no-text`, `--fps 30`, and `--urgent-easing`. Urgent easing
      is off by default because the owner chose "always smooth".

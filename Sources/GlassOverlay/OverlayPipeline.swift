@@ -75,7 +75,13 @@ public final class OverlayPipeline: @unchecked Sendable {
     /// arrived before the first backdrop frame, and backdrop motion would never reach the glass.
     @discardableResult
     public func ingestBackdrop(_ buffer: CVPixelBuffer) -> CVPixelBuffer? {
-        let img = CIImage(cvPixelBuffer: buffer)
+        ingestBackdrop(image: CIImage(cvPixelBuffer: buffer))
+    }
+
+    /// A backdrop already cropped to this window, e.g. by `BackdropRouter` from a shared display
+    /// capture. Its extent must start at the origin.
+    @discardableResult
+    public func ingestBackdrop(image img: CIImage) -> CVPixelBuffer? {
         lock.withLock {
             backdrop = img
             inputGeneration += 1

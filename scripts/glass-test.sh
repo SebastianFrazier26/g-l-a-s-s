@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Opens test windows (TextEdit, Notes, Finder) and glasses each with its own spike instance.
+# Opens test windows (TextEdit, Notes, Finder) and glasses all three from one spike process.
 # Usage: scripts/glass-test.sh [--mode keyed|uniform] [--measure SECONDS]
 # Stop: pkill -x GlassCaptureSpike
 set -euo pipefail
@@ -47,13 +47,10 @@ open "$HOME"
 sleep 3
 
 pkill -x GlassCaptureSpike 2>/dev/null || true
-for app in TextEdit Notes Finder; do
-    open -n "$APP" --args --window "$app" --mode "$MODE"
-    sleep 1
-done
-sleep 2
+open -n "$APP" --args --window TextEdit --window Notes --window Finder --mode "$MODE"
+sleep 3
 echo "--- overlays (log: $LOG)"
-grep -E "glassing|no on-screen|failed|can't see" "$LOG" | tail -3
+grep -E "glassing|no on-screen|failed|can't see|backdrop capture|window\(s\)|nothing to glass" "$LOG" | tail -6
 pgrep -x GlassCaptureSpike >/dev/null || { echo "no overlay running; see $LOG" >&2; exit 1; }
 echo "running pids: $(pgrep -x GlassCaptureSpike | tr '\n' ' ')"
 echo "stop with: pkill -x GlassCaptureSpike"
@@ -72,6 +69,6 @@ if [[ "$MEASURE" -gt 0 ]]; then
             for (p in cpu) printf "pid %s: avg CPU %.1f%%, RSS %.0f MB\n", p, cpu[p] / n[p], rss[p] / 1024
             if (wn) printf "WindowServer: avg CPU %.1f%%\n", ws / wn
         }'
-    echo "--- fps reported during the window"
-    tail -n +"$((start_line + 1))" "$LOG" | grep "fps composited" || echo "(none logged yet)"
+    echo "--- rates logged during the window"
+    tail -n +"$((start_line + 1))" "$LOG" | grep "per s:" || echo "(none logged yet)"
 fi

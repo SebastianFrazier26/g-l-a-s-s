@@ -401,7 +401,8 @@ Built ahead of sign-off so it can be evaluated. Discard the branch if B is rejec
 
 ## 6b. Owner decisions (2026-11-23)
 
-Typed by the owner in the orchestrating session and relayed to the implementing agent.
+Typed by the owner in the orchestrating session and relayed to the implementing agent. The keying,
+tracking and process-model rows were decided after the first live run (`docs/perf.md`).
 
 | Question | Decision | Where it lives |
 |---|---|---|
@@ -409,6 +410,9 @@ Typed by the owner in the orchestrating session and relayed to the implementing 
 | Urgent easing (Q3b) | **Always smooth.** Urgent easing stays off by default. The flag stays for experiments. | `OwnerDefaults.urgentOmega = nil`; spike `--urgent-easing` |
 | Contrast target | **APCA Lc 60** (unchanged). | `OwnerDefaults.contrastTarget` |
 | Hue (§6.2) | **Hue and chroma may shift.** **Complementary** is the default strategy (`nearest` and `lightnessOnly` stay as settings). **A little more saturation** (+0.03 C). **45° hue cap.** **Display P3** where the display supports it, sRGB otherwise. Follow-up: grey text being adjusted over a coloured backdrop **always takes the complementary tint** (setting to turn off); **red guard stays on**; no brand-hue protection list. | `HueShiftPolicy.default`, `OwnerDefaults.hueShift`, `ColorGamut`, `DisplayInfo.gamut`; spike `--hue-shift` |
+| Keying distance (after the first live run) | **Keep the current keying**: summed per-channel difference in linear light. Not OKLab. Known effect: in dark mode, greys up to about #303030 key out fully, so dark selection highlights and toolbars turn to glass (`docs/perf.md`). | `GlassCompositor.differenceMask`, `TransparencySetting.windowMode` |
+| Window tracking rate | **Adaptive: 60 Hz while the window moves, 10 Hz when it is still** (after 0.5 s). Costs up to 100 ms of lag on the first frame of a drag. | `WindowTracker.start(activeHz:idleHz:settleTime:)` |
+| Process model | **One process for all glassed windows**, sharing one backdrop capture per display. Each window keeps its own window capture. Accepted trade-off: the shared capture excludes every glassed window, so a glassed window's glass shows what is behind the whole group, not another glassed window behind it. | `BackdropRouter`; spike `--window A --window B ...` |
 | Signing | **Keep ad-hoc.** No Developer ID yet, so every rebuild of the .app needs Screen Recording granted again. | `scripts/bundle-spike.sh` |
 
 This supersedes assumption 1 in §6 (now confirmed), assumption 2 (hue now moves), and assumption 5

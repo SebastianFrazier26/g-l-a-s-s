@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-11-23 (integration build, branch `mvp/integration`)
+
+This merges `fix/overlay-perf` and `feat/hue-shift`, then applies the owner's decisions after the
+first live run (DESIGN §6b).
+- **One process glasses every window.** Use `--window TextEdit --window Notes --window Finder`.
+  - Each display with a glassed window gets one shared backdrop capture. `BackdropRouter` crops
+    it per window.
+  - A window is skipped when ScreenCaptureKit's dirty rects show that nothing under it changed.
+    `--all-backdrop-frames` turns the skipping off, for debugging.
+  - `scripts/glass-test.sh` now launches a single process.
+- **Window tracking is adaptive.** It polls at 60 Hz while the window moves and drops to 10 Hz
+  after 0.5 s still.
+- **Only complete frames are used.** Capture frames that ScreenCaptureKit marks idle or blank are
+  ignored.
+- **The log line has changed.** It is now one line per window every 5 s, and adds skipped backdrop
+  frames and the tracker rate.
+- **Keying is unchanged.** This is an owner decision: it is not OKLab.
+
 ## 2026-11-23 (first live run fixes, branch `fix/overlay-perf`)
 
 These fixes are not yet in the signed .app. See `docs/perf.md`.

@@ -98,7 +98,14 @@ and *where* the overlay sat, not in the compositing itself.
 
 Tests cover each fix headlessly: 119 tests passing, and lint is clean.
 
-## Still unverified / open
+## Owner decisions after this run (2026-11-23)
+
+- **Keying:** keep the current keying; no OKLab.
+- **Tracking:** adaptive, 60 Hz while moving and 10 Hz when still.
+- **Process model:** one process for all windows, with one shared backdrop capture per display.
+- **Where it was done:** on `mvp/integration`; see DESIGN §6b.
+
+## Still unverified / open (as of the per-window fixes)
 
 - **Cross-app z-ordering.** `order(.above, relativeTo:)` against another app's window from a
   background accessory app is not verified on macOS 26. The new `z-reorders` counter will show
