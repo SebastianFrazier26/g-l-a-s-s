@@ -1,16 +1,36 @@
 import AppKit
 import CoreGraphics
+import GlassContrast
 
 public struct DisplayInfo: Equatable, Sendable {
     public let id: CGDirectDisplayID
     /// Global CG coordinates (top-left origin at the primary display), in points.
     public let frame: CGRect
     public let scale: Double
+    /// What the text solver may use on this display (owner decision 2026-11-23: P3 where supported).
+    public let gamut: ColorGamut
 
-    public init(id: CGDirectDisplayID, frame: CGRect, scale: Double) {
+    public init(id: CGDirectDisplayID, frame: CGRect, scale: Double, gamut: ColorGamut = .sRGB) {
         self.id = id
         self.frame = frame
         self.scale = scale
+        self.gamut = gamut
+    }
+}
+
+extension ColorGamut {
+    /// `canRepresent(.p3)` is AppKit's own answer and accounts for the panel, not only its profile.
+    /// The profile check is the fallback for displays NSScreen doesn't list.
+    @MainActor public static func of(screen: NSScreen) -> ColorGamut {
+        screen.canRepresent(.p3) ? .displayP3 : .sRGB
+    }
+
+    public static func of(colorSpace: CGColorSpace?) -> ColorGamut {
+        colorSpace?.isWideGamutRGB == true ? .displayP3 : .sRGB
+    }
+
+    public var cgColorSpace: CGColorSpace {
+        CGColorSpace(name: self == .displayP3 ? CGColorSpace.displayP3 : CGColorSpace.sRGB)!
     }
 }
 
@@ -56,7 +76,9 @@ public enum DisplayLayout {
                 return nil
             }
             let id = CGDirectDisplayID(n.uint32Value)
-            return DisplayInfo(id: id, frame: CGDisplayBounds(id), scale: Double(screen.backingScaleFactor))
+            return DisplayInfo(
+                id: id, frame: CGDisplayBounds(id), scale: Double(screen.backingScaleFactor),
+                gamut: ColorGamut.of(screen: screen))
         }
     }
 }

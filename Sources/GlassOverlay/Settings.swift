@@ -32,6 +32,20 @@ public enum OwnerDefaults {
     /// "Always smooth": urgent easing stays available behind a flag but is off by default.
     public static let urgentOmega: Double? = nil
     public static let transparency: TransparencySetting = .default
+    /// Owner decision 2026-11-23: hue and chroma may move, not only lightness (DESIGN §6 item 2).
+    public static let hueShift: HueShiftPolicy = .default
+}
+
+extension HueShiftPolicy.Strategy {
+    /// Accepts any letter case; nil for anything else, matching `TransparencySetting(parsing:)`.
+    public init?(parsing text: String) {
+        switch text.lowercased() {
+        case "lightness", "lightness-only": self = .lightnessOnly
+        case "nearest": self = .nearest
+        case "complementary": self = .complementary
+        default: return nil
+        }
+    }
 }
 
 extension OverlayPipeline.Options {

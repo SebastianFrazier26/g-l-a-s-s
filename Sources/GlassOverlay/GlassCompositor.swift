@@ -58,6 +58,9 @@ public struct TextStyle: Sendable, Equatable {
 public final class GlassCompositor: @unchecked Sendable {
     let context: CIContext
     static let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
+    /// Text colours arrive as extended sRGB (Display P3 colours fall outside 0...1), so constants
+    /// are built in this space rather than sRGB, which would clip them.
+    static let extendedSRGB = CGColorSpace(name: CGColorSpace.extendedSRGB)!
 
     public init(softwareRendering: Bool = false) {
         context = CIContext(options: [
@@ -136,8 +139,13 @@ public final class GlassCompositor: @unchecked Sendable {
 
     /// GPU path for the live overlay: render into an IOSurface-backed buffer that a CALayer can
     /// display directly, avoiding a CGImage readback per frame.
-    public func render(_ image: CIImage, into buffer: CVPixelBuffer) {
-        context.render(image, to: buffer, bounds: image.extent, colorSpace: Self.sRGB)
+    /// `gamut` is the display's: P3 on P3 displays so wide-gamut text survives. Analysis readbacks
+    /// (`renderRGBA`, `renderCGImage`) stay sRGB, matching the captures.
+    public func render(_ image: CIImage, into buffer: CVPixelBuffer, gamut: ColorGamut = .sRGB) {
+        let space = gamut.cgColorSpace
+        // Tag the buffer, otherwise the layer assumes sRGB and P3 values would be reinterpreted.
+        CVBufferSetAttachment(buffer, kCVImageBufferCGColorSpaceKey, space, .shouldPropagate)
+        context.render(image, to: buffer, bounds: image.extent, colorSpace: space)
     }
 
     public func renderCGImage(_ image: CIImage) -> CGImage? {
@@ -160,7 +168,7 @@ public final class GlassCompositor: @unchecked Sendable {
 
     func constant(_ c: RGB, alpha: Double, _ extent: CGRect) -> CIImage {
         let color =
-            CIColor(red: c.r, green: c.g, blue: c.b, alpha: alpha, colorSpace: Self.sRGB)
+            CIColor(red: c.r, green: c.g, blue: c.b, alpha: alpha, colorSpace: Self.extendedSRGB)
             ?? CIColor(red: c.r, green: c.g, blue: c.b, alpha: alpha)
         return CIImage(color: color).cropped(to: extent)
     }

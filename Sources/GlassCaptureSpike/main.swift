@@ -13,6 +13,7 @@ struct Options {
     var mode = OwnerDefaults.transparency
     var alpha = TransparencySetting.defaultUniformAlpha
     var urgent = false
+    var hueShift = OwnerDefaults.hueShift
     var text = true
     var fps = 30
     var key: RGB?
@@ -36,6 +37,9 @@ struct Options {
             case "--key":
                 o.key = it.next().flatMap { UInt32($0.trimmingCharacters(in: ["#"]), radix: 16) }.map(RGB.init(hex:))
             case "--urgent-easing": o.urgent = true
+            case "--hue-shift":
+                guard let s = it.next().flatMap(HueShiftPolicy.Strategy.init(parsing:)) else { return nil }
+                o.hueShift.strategy = s
             case "--no-text": o.text = false
             default: return nil
             }
@@ -55,6 +59,8 @@ func usage() -> Never {
             --alpha 0.55           window-copy opacity in uniform mode
             --key RRGGBB           key colour for keyed mode (default: the window's dominant colour)
             --urgent-easing        fast easing while text is unreadable (off: owner chose "always smooth")
+            --hue-shift complementary|nearest|lightness
+                                   how text colour may move (default complementary: hue toward the backdrop complement)
             --no-text              skip OCR and text recolouring
             --fps 30
         """)
@@ -151,6 +157,7 @@ final class OverlayController {
         var o = OverlayPipeline.Options(transparency: options.mode, uniformAlpha: options.alpha, key: options.key)
         o.urgentOmega = options.urgent ? 40 : OwnerDefaults.urgentOmega
         o.textEnabled = options.text
+        o.hueShift = options.hueShift
         pipeline = OverlayPipeline(options: o)
     }
 
@@ -168,6 +175,7 @@ final class OverlayController {
             exit(1)
         }
         displayInfo = info
+        pipeline.setDisplayGamut(info.gamut)
         self.target = target
         self.display = display
 
@@ -226,7 +234,10 @@ final class OverlayController {
             lastSize = frame.size
             let newInfo = DisplayLayout.best(for: frame, among: DisplayLayout.systemDisplays())
             let displayChanged = newInfo != nil && newInfo?.id != displayInfo?.id
-            if let newInfo { displayInfo = newInfo }
+            if let newInfo {
+                if newInfo.gamut != displayInfo?.gamut { pipeline.setDisplayGamut(newInfo.gamut) }
+                displayInfo = newInfo
+            }
             updateGeometry()
             Task {
                 if displayChanged { await switchBackdropDisplay() }
@@ -295,7 +306,7 @@ final class OverlayController {
         else { return }
         self.display = display
         try? await backdropStream?.updateContentFilter(SCContentFilter(display: display, excludingWindows: excluded))
-        print("target moved to display \(displayInfo.id) (scale \(displayInfo.scale))")
+        print("target moved to display \(displayInfo.id) (scale \(displayInfo.scale), \(displayInfo.gamut))")
     }
 
     private func streamStopped(_ error: Error) async {

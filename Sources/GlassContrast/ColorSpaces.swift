@@ -120,9 +120,9 @@ public struct OKLCH: Hashable, Sendable {
     public var isInGamut: Bool { lab.linear.encoded.isInGamut }
 
     /// Chroma reduction at fixed L and h (the CSS Color 4 strategy, minus its clipping shortcut).
-    public func gamutMapped() -> OKLCH {
-        if isInGamut { return self }
-        return OKLCH(L: L, C: min(C, Gamut.maxChroma(lightness: L, hue: h)), h: h)
+    public func gamutMapped(to gamut: ColorGamut = .sRGB) -> OKLCH {
+        if gamut.contains(self) { return self }
+        return OKLCH(L: L, C: min(C, Gamut.maxChroma(lightness: L, hue: h, in: gamut)), h: h)
     }
 }
 

@@ -2,9 +2,10 @@ import Foundation
 
 /// WCAG 2.x relative luminance and contrast ratio (https://www.w3.org/TR/WCAG22/#dfn-contrast-ratio).
 public enum WCAG {
+    /// Accepts extended sRGB, so a Display P3 colour is scored by its real luminance.
     public static func relativeLuminance(_ c: RGB) -> Double {
-        let l = c.clamped().linear
-        return 0.2126 * l.r + 0.7152 * l.g + 0.0722 * l.b
+        let l = ColorGamut.displayP3.clamp(c).linear
+        return max(0.2126 * l.r + 0.7152 * l.g + 0.0722 * l.b, 0)
     }
 
     public static func contrastRatio(_ x: RGB, _ y: RGB) -> Double {
@@ -21,9 +22,13 @@ public enum APCA {
     static let blkThrs = 0.022, blkClmp = 1.414
     static let scale = 1.14, loOffset = 0.027, loClip = 0.1, deltaYmin = 0.0005
 
+    /// Accepts extended sRGB (sign-preserving power, as CSS does for extended values) so a Display P3
+    /// colour keeps one luminance formula with sRGB ones. APCA's separate P3 coefficients were not
+    /// used: they would score the same physical colour differently either side of the sRGB boundary.
     public static func screenLuminance(_ c: RGB) -> Double {
-        let k = c.clamped()
-        return 0.2126729 * pow(k.r, mainTRC) + 0.7151522 * pow(k.g, mainTRC) + 0.0721750 * pow(k.b, mainTRC)
+        let k = ColorGamut.displayP3.clamp(c)
+        func t(_ x: Double) -> Double { x < 0 ? -pow(-x, mainTRC) : pow(x, mainTRC) }
+        return max(0.2126729 * t(k.r) + 0.7151522 * t(k.g) + 0.0721750 * t(k.b), 0)
     }
 
     /// Signed Lc: positive for dark text on light background, negative for light on dark.

@@ -12,6 +12,66 @@ These fixes are not yet in the signed .app. See `docs/perf.md`.
   offset from the real window.
 - **The spike logs per-second rates every 5 s,** replacing the misleading "fps composited" line.
 
+## 2026-11-23 (hue shifting: owner follow-ups, branch `feat/hue-shift`)
+
+- **Deliberate grey tint.** Grey text that has to be adjusted over a coloured backdrop now always
+  takes a tint of the backdrop's complement, up to +0.03 chroma.
+  - It is on by default. `HueShiftPolicy.tintsGreyText = false` turns it off.
+  - Over a grey backdrop the text stays grey, and readable grey text is left alone.
+  - The tint fades in with backdrop chroma rather than switching on and off.
+- **Red guard confirmed** on by default. Brand orange turning yellow over navy is accepted, and
+  there is no brand-hue protection list.
+- **Known limitation, recorded in DESIGN §6 item 2.** The display gamut is read only when the
+  window changes display.
+- **Demo.** The demo sheet is regenerated.
+
+## 2026-11-23 (hue shifting: owner answers, branch `feat/hue-shift`)
+
+The owner answered the four follow-up questions. See DESIGN §6 item 2 and §6b.
+- **Complementary is now the default strategy.** Hue turns only toward the complement of the local
+  backdrop's hue. `nearest` and `lightnessOnly` remain as settings.
+- **Hue turns are capped at 45°** (was 60°).
+- **Chroma may rise by up to +0.03 OKLCH C.**
+  - Grey text may take a tint, but only at the backdrop's complement, at most 0.03, and only over
+    a chromatic backdrop.
+  - In practice the minimum-change rule rarely picks one.
+- **Semantic-red guard (on by default).** Saturated reds stay within 350°–45° and don't turn amber
+  over blue backdrops. It narrows the owner's strategy and never overrides it.
+- **Display P3 support.**
+  - The solver works in the display's gamut (`ColorGamut`). P3 colours are carried as extended
+    sRGB.
+  - The overlay detects each display's gamut (`NSScreen.canRepresent(.p3)`). It re-solves when
+    the window changes display, and renders and tags the live buffer in P3 or sRGB.
+  - APCA and WCAG luminance accept extended values.
+- **Search fix.** Hue/chroma candidates now sit on the gamut edge. Fixed chroma levels missed it
+  and almost never beat lightness-only.
+- **Demo.** The demo sheet is regenerated. Its "brand orange" line is renamed, because it now
+  turns yellow over dark navy.
+
+## 2026-11-23 (hue shifting, branch `feat/hue-shift`)
+
+The owner overturned DESIGN §6 assumption 2 ("keep the original hue"). The 0.5 s settle and the
+macOS 14 minimum are unchanged.
+- **Text may shift hue and chroma, not just lightness.** `HueShiftPolicy` sets how
+  (`Sources/GlassContrast/HueShift.swift`).
+  - Lightness-only is still tried first.
+  - A hue/chroma move is used only if it is clearly closer to the original colour, measured by
+    ΔE_OK with chroma loss weighted ×2. In practice that is when lightness alone would wash the
+    colour out near white or black.
+  - Hue turns are capped at 60°, chroma never rises above the original, and the colour stays in
+    the sRGB gamut. The follow-up entry above superseded these limits the same day.
+- **Setting.** The strategies are `.nearest` (the default), `.complementary` and
+  `.lightnessOnly`.
+  - The default lives in `OwnerDefaults.hueShift`, and the policy is passed through
+    `OverlayPipeline.Options.hueShift` and `TextLayerModel`.
+  - The spike takes `--hue-shift`.
+- **Smoother hue transitions.** The text-colour spring now eases in OKLCH, with hue on the shorter
+  arc. The OKLab path remains as `InterpolationSpace.oklab`.
+- **Less flicker.** New hysteresis keeps lightness-only and hue-shifted answers, and near-equal
+  hue branches, from alternating.
+- **API changes.** `ContrastSolution` gains `hueShifted`. `ContrastSolver.solve` and
+  `solveWithScrim` take optional `preferredHueShift` and `previous` hints.
+
 ## 2026-11-23 (owner decisions, branch `mvp/overlay-b-robustness`)
 
 These are the owner's decisions, recorded in DESIGN §6b.

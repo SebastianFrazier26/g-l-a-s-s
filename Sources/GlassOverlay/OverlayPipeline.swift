@@ -10,6 +10,7 @@ public final class OverlayPipeline: @unchecked Sendable {
         public var parameters: GlassParameters
         public var target: ContrastTarget = OwnerDefaults.contrastTarget
         public var urgentOmega: Double? = OwnerDefaults.urgentOmega
+        public var hueShift: HueShiftPolicy = OwnerDefaults.hueShift
         public var textEnabled = true
         /// Key colour comes from the window itself when nil (its dominant colour).
         public var fixedKey: RGB?
@@ -50,12 +51,23 @@ public final class OverlayPipeline: @unchecked Sendable {
         public var analyses = 0
         public var ocrRuns = 0
     }
+    private var displayGamut = ColorGamut.sRGB
 
     public init(options: Options, softwareRendering: Bool = false) {
         self.options = options
         compositor = GlassCompositor(softwareRendering: softwareRendering)
         textModel = TextLayerModel(
-            target: options.target, parameters: options.parameters, urgentOmega: options.urgentOmega)
+            target: options.target, parameters: options.parameters, urgentOmega: options.urgentOmega,
+            hueShift: options.hueShift)
+    }
+
+    /// Call when the window lands on a display (at start and whenever it moves to another one).
+    public func setDisplayGamut(_ gamut: ColorGamut) {
+        lock.withLock {
+            textModel.gamut = gamut
+            displayGamut = gamut
+            settled = false  // the solver's gamut changed, so idle analysis must re-solve
+        }
     }
 
     /// Every input re-composites, not only window frames: ScreenCaptureKit delivers a frame only
@@ -92,16 +104,16 @@ public final class OverlayPipeline: @unchecked Sendable {
         // renders out of order would flash a stale frame.
         renderLock.lock()
         defer { renderLock.unlock() }
-        let (win, bd, params, text, holes, coverage, paused) = lock.withLock {
+        let (win, bd, params, text, holes, coverage, paused, gamut) = lock.withLock {
             (
                 windowFrame, backdrop, options.parameters, options.textEnabled ? styles : [], self.holes,
-                backdropCoverage, self.paused
+                backdropCoverage, self.paused, displayGamut
             )
         }
         guard !paused, let win, let bd, let out = outputBuffer(for: win.extent.size) else { return nil }
         let image = compositor.compose(
             backdrop: bd, window: win, parameters: params, text: text, holes: holes, backdropCoverage: coverage)
-        compositor.render(image, into: out)
+        compositor.render(image, into: out, gamut: gamut)
         lock.withLock { counters.composites += 1 }
         return out
     }
