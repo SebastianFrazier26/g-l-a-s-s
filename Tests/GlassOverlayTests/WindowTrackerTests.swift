@@ -90,6 +90,22 @@ struct WindowTrackerTests {
         #expect(events.last == .changed(CGRect(x: 25, y: 0, width: 500, height: 320)))
     }
 
+    @Test func pollsFastWhileMovingAndSlowWhenStill() {
+        let src = FakeSource()
+        let t = WindowTracker(windowID: 9, source: src.list) { _ in }
+        t.poll()
+        #expect(t.currentHz == 60)
+        for _ in 0..<29 { t.poll() }
+        #expect(t.currentHz == 60)  // still < 0.5 s at 60 Hz
+        t.poll()
+        #expect(t.currentHz == 10)
+        for _ in 0..<50 { t.poll() }
+        #expect(t.currentHz == 10)
+        src.frame = CGRect(x: 30, y: 0, width: 400, height: 300)
+        t.poll()
+        #expect(t.currentHz == 60)  // a drag starts: back to full rate at once
+    }
+
     @Test func reportsCloseOnceAndStops() {
         let src = FakeSource()
         var events: [WindowTracker.Event] = []

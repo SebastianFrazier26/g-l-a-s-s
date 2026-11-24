@@ -212,7 +212,7 @@ final class OverlayController {
         }
 
         let tracker = WindowTracker(windowID: snap.id) { [weak self] event in self?.handle(event) }
-        tracker.start(hz: 60)
+        tracker.start()
         self.tracker = tracker
         print("glassing \(options.appName) window \(snap.id) (\(options.mode)); quit with: pkill -x GlassCaptureSpike")
     }

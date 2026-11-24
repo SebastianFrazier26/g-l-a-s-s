@@ -75,8 +75,12 @@ public enum WindowList {
 ///
 /// Polling was chosen over AXObserver move/resize notifications: it needs no permission (AX needs
 /// Accessibility), and mapping an AX window to a CGWindowID needs the private
-/// `_AXUIElementGetWindow`. Cost: one small WindowServer query per tick; at 60 Hz the overlay
-/// trails a drag by at most ~1 frame plus capture latency.
+/// `_AXUIElementGetWindow`. Cost: one WindowServer round-trip per tick.
+///
+/// Adaptive rate (owner decision 2026-11-23): `activeHz` while the frame is changing, so a drag is
+/// followed within ~1 frame; `idleHz` once it has been still for `settleTime`. At 60 Hz the poll cost
+/// ~5% of a core per window plus WindowServer load; the price is up to 1/idleHz of lag on the
+/// first frame of a drag.
 @MainActor
 public final class WindowTracker {
     public enum Event: Equatable, Sendable {
@@ -93,6 +97,12 @@ public final class WindowTracker {
     private var closed = false
     private var hidden = false
     private var timer: Timer?
+    private var activeHz = 60.0
+    private var idleHz = 10.0
+    private var settleTime = 0.5
+    private var stillPolls = 0
+    public private(set) var currentHz = 0.0
+    private var started = false
 
     public init(
         windowID: CGWindowID, source: @escaping WindowList.Source = WindowList.system,
@@ -123,20 +133,40 @@ public final class WindowTracker {
         hidden = false
         if snap.frame != last {
             last = snap.frame
+            stillPolls = 0
+            setRate(activeHz)
             onEvent(.changed(snap.frame))
+        } else {
+            stillPolls += 1
+            if currentHz == activeHz, Double(stillPolls) >= settleTime * activeHz { setRate(idleHz) }
         }
     }
 
-    public func start(hz: Double = 60) {
+    public func start(activeHz: Double = 60, idleHz: Double = 10, settleTime: Double = 0.5) {
         stop()
-        timer = Timer.scheduledTimer(withTimeInterval: 1 / hz, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.poll() }
-        }
+        self.activeHz = activeHz
+        self.idleHz = idleHz
+        self.settleTime = settleTime
+        started = true
+        currentHz = 0
+        setRate(activeHz)
         poll()
     }
 
     public func stop() {
         timer?.invalidate()
         timer = nil
+        started = false
+    }
+
+    /// Without `start()` this only records the rate, so tests can drive `poll()` by hand.
+    private func setRate(_ hz: Double) {
+        guard hz != currentHz else { return }
+        currentHz = hz
+        guard started else { return }
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 1 / hz, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.poll() }
+        }
     }
 }
