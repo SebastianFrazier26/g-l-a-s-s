@@ -13,6 +13,7 @@ struct Options {
     var mode = OwnerDefaults.transparency
     var alpha = TransparencySetting.defaultUniformAlpha
     var urgent = false
+    var hueShift = OwnerDefaults.hueShift
     var text = true
     var fps = 30
     var key: RGB?
@@ -36,6 +37,9 @@ struct Options {
             case "--key":
                 o.key = it.next().flatMap { UInt32($0.trimmingCharacters(in: ["#"]), radix: 16) }.map(RGB.init(hex:))
             case "--urgent-easing": o.urgent = true
+            case "--hue-shift":
+                guard let s = it.next().flatMap(HueShiftPolicy.Strategy.init(parsing:)) else { return nil }
+                o.hueShift.strategy = s
             case "--no-text": o.text = false
             default: return nil
             }
@@ -55,6 +59,8 @@ func usage() -> Never {
             --alpha 0.55           window-copy opacity in uniform mode
             --key RRGGBB           key colour for keyed mode (default: the window's dominant colour)
             --urgent-easing        fast easing while text is unreadable (off: owner chose "always smooth")
+            --hue-shift nearest|complementary|lightness
+                                   how text colour may move (default nearest: hue/chroma allowed)
             --no-text              skip OCR and text recolouring
             --fps 30
         """)
@@ -149,6 +155,7 @@ final class OverlayController {
         var o = OverlayPipeline.Options(transparency: options.mode, uniformAlpha: options.alpha, key: options.key)
         o.urgentOmega = options.urgent ? 40 : OwnerDefaults.urgentOmega
         o.textEnabled = options.text
+        o.hueShift = options.hueShift
         pipeline = OverlayPipeline(options: o)
     }
 

@@ -10,6 +10,7 @@ public final class OverlayPipeline: @unchecked Sendable {
         public var parameters: GlassParameters
         public var target: ContrastTarget = OwnerDefaults.contrastTarget
         public var urgentOmega: Double? = OwnerDefaults.urgentOmega
+        public var hueShift: HueShiftPolicy = OwnerDefaults.hueShift
         public var textEnabled = true
         /// Key colour comes from the window itself when nil (its dominant colour).
         public var fixedKey: RGB?
@@ -37,7 +38,8 @@ public final class OverlayPipeline: @unchecked Sendable {
         self.options = options
         compositor = GlassCompositor(softwareRendering: softwareRendering)
         textModel = TextLayerModel(
-            target: options.target, parameters: options.parameters, urgentOmega: options.urgentOmega)
+            target: options.target, parameters: options.parameters, urgentOmega: options.urgentOmega,
+            hueShift: options.hueShift)
     }
 
     public func ingestBackdrop(_ buffer: CVPixelBuffer) {

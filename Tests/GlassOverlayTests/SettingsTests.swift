@@ -81,3 +81,22 @@ struct SettingsTests {
         #expect(o.urgentOmega == nil)
     }
 }
+
+@Suite("Hue-shift setting")
+struct HueShiftSettingTests {
+    @Test func ownerDefaultAllowsHueShift() {
+        #expect(OwnerDefaults.hueShift.strategy == .nearest)
+        let model = TextLayerModel(target: .apca(60), parameters: GlassParameters(mode: .uniform(alpha: 0.5)))
+        #expect(model.hueShift == OwnerDefaults.hueShift)
+    }
+
+    @Test(arguments: [
+        ("nearest", HueShiftPolicy.Strategy.nearest), ("Complementary", .complementary),
+        ("lightness", .lightnessOnly), ("LIGHTNESS-ONLY", .lightnessOnly),
+    ])
+    func parsesStrategyNames(text: String, expected: HueShiftPolicy.Strategy) {
+        #expect(HueShiftPolicy.Strategy(parsing: text) == expected)
+    }
+
+    @Test func rejectsUnknownStrategy() { #expect(HueShiftPolicy.Strategy(parsing: "hue") == nil) }
+}

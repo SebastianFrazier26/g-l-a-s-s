@@ -130,14 +130,17 @@ struct SolverTests {
         }
     }
 
-    @Test func propertyHueIsPreservedWhenChromaSurvives() {
+    @Test func propertyHueIsPreservedUnlessShiftIsChosen() {
         var rng = SplitMix64(seed: 7)
         for _ in 0..<300 {
             let text = OKLCH(L: 0.3 + rng.unit() * 0.4, C: 0.12, h: rng.unit() * 360).gamutMapped().rgb
             let bg = RGB(r: rng.unit(), g: rng.unit(), b: rng.unit())
             let sol = solver.solve(text: text, background: .uniform(bg))
             let out = sol.color.oklch
-            if sol.changed && out.C > 0.03 {
+            guard sol.changed && out.C > 0.03 else { continue }
+            if sol.hueShifted {
+                #expect(hueDistance(out.h, text.oklch.h) <= solver.hueShift.maxHueShift + 0.5)
+            } else {
                 #expect(hueDistance(out.h, text.oklch.h) < 2.0)
             }
         }

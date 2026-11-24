@@ -20,19 +20,28 @@ extension ContrastSolver {
     /// Text colour first, scrim only if needed, and then the faintest scrim that works.
     /// `maxOpacity` keeps the glass recognisably glass; beyond it the result reports failure.
     public func solveWithScrim(
-        text: RGB, background: BackgroundSample, preferred: Polarity? = nil, maxOpacity: Double = 0.85
+        text: RGB, background: BackgroundSample, preferred: Polarity? = nil, preferredHueShift: Bool? = nil,
+        previous: RGB? = nil, maxOpacity: Double = 0.85
     ) -> ScrimResult {
-        let plain = solve(text: text, background: background, preferred: preferred)
+        let plain = solve(
+            text: text, background: background, preferred: preferred, preferredHueShift: preferredHueShift,
+            previous: previous)
         if plain.meetsTarget {
             return ScrimResult(scrim: plain.polarity == .lighter ? .black : .white, opacity: 0, solution: plain)
         }
 
-        func attempt(_ side: Polarity, _ opacity: Double) -> ContrastSolution? {
+        // Feasibility depends on luminance alone, so the bisection probes lightness-only (cheap) and
+        // only the chosen opacity pays for the hue/chroma search.
+        var probe = self
+        probe.hueShift = .lightnessOnly
+        func attempt(_ side: Polarity, _ opacity: Double, using solver: ContrastSolver? = nil) -> ContrastSolution? {
             let scrim: RGB = side == .lighter ? .black : .white
             let veiled = BackgroundSample(
                 colors: background.colors.map { ScrimResult.blend($0, over: scrim, opacity: opacity) },
                 weights: background.weights)
-            let s = solve(text: text, background: veiled, preferred: side)
+            let s = (solver ?? probe).solve(
+                text: text, background: veiled, preferred: side, preferredHueShift: preferredHueShift,
+                previous: previous)
             return s.meetsTarget && s.polarity == side ? s : nil
         }
 
@@ -45,7 +54,7 @@ extension ContrastSolver {
                 let mid = (lo + hi) / 2
                 if attempt(side, mid) != nil { hi = mid } else { lo = mid }
             }
-            guard let sol = attempt(side, hi) else { continue }
+            guard let sol = attempt(side, hi, using: self) ?? attempt(side, hi) else { continue }
             // Same idea as polarity hysteresis: don't swap a black veil for a white one over a hair.
             let cost = hi - (side == preferred ? 0.05 : 0)
             if cost < bestCost {
