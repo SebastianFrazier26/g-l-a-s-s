@@ -76,6 +76,48 @@ struct HueShiftTests {
         #expect(hueDistance(out.h, complement) < 0.5)
     }
 
+    @Test func adjustedGreyTextOverAColouredBackdropTakesTheComplementaryTint() {
+        let backdrop = BackgroundSample.uniform(RGB(hex: 0x2244AA))
+        let sol = shifting.solve(text: RGB(hex: 0x888888), background: backdrop)
+        let out = sol.color.oklch
+        let complement = (ContrastSolver.dominantHue(backdrop)! + 180).truncatingRemainder(dividingBy: 360)
+        #expect(sol.meetsTarget && sol.changed && sol.hueShifted)
+        #expect(out.C > 0.02 && out.C <= 0.03 + 1e-6)
+        #expect(hueDistance(out.h, complement) < 0.5)
+        #expect(APCA.lightnessContrast(text: sol.color, background: RGB(hex: 0x2244AA)).magnitude >= 60 - 1e-9)
+    }
+
+    @Test func tintCanBeTurnedOff() {
+        let s = ContrastSolver(
+            target: .apca(60), hueShift: HueShiftPolicy(strategy: .complementary, tintsGreyText: false))
+        let sol = s.solve(text: RGB(hex: 0x888888), background: .uniform(RGB(hex: 0x2244AA)))
+        #expect(sol.meetsTarget && sol.color.oklch.C < 0.005)
+        let plain = fixed.solve(text: RGB(hex: 0x888888), background: .uniform(RGB(hex: 0x2244AA)))
+        #expect(plain.color.oklch.C < 1e-3)
+    }
+
+    @Test func readableGreyTextIsLeftAloneEvenOverColour() {
+        // "Being adjusted" is the trigger: text that already passes keeps its exact colour.
+        let sol = shifting.solve(text: RGB(hex: 0xF0F0F0), background: .uniform(RGB(hex: 0x102060)))
+        #expect(!sol.changed && sol.color == RGB(hex: 0xF0F0F0))
+    }
+
+    @Test func tintFadesInWithBackdropChromaInsteadOfToggling() {
+        // Backdrop chroma swept from grey to clearly blue: tint chroma rises continuously from zero.
+        var last = 0.0
+        for i in 0...60 {
+            let c = Double(i) * 0.001
+            let bg = OKLCH(L: 0.45, C: c, h: 264).rgb
+            let sol = shifting.solve(text: RGB(hex: 0x777777), background: .uniform(bg))
+            let tint = sol.color.oklch.C
+            if c < 0.02 { #expect(tint < 1e-3) }
+            if c >= 0.05 { #expect(tint > 0.02) }
+            #expect(tint >= last - 2e-3)
+            #expect(tint - last < 0.006, "jump at backdrop C=\(c)")
+            last = tint
+        }
+    }
+
     @Test func semanticRedStaysRed() {
         // Over a blue backdrop the complementary arc from red points toward amber (measured: 72°
         // without the guard). The guard keeps it inside the red band.

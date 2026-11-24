@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-11-23 (hue shifting: owner follow-ups, branch `feat/hue-shift`)
+
+- **Deliberate grey tint.** Grey text that has to be adjusted over a coloured backdrop now always
+  takes a tint of the backdrop's complement, up to +0.03 chroma.
+  - It is on by default. `HueShiftPolicy.tintsGreyText = false` turns it off.
+  - Over a grey backdrop the text stays grey, and readable grey text is left alone.
+  - The tint fades in with backdrop chroma rather than switching on and off.
+- **Red guard confirmed** on by default. Brand orange turning yellow over navy is accepted, and
+  there is no brand-hue protection list.
+- **Known limitation, recorded in DESIGN §6 item 2.** The display gamut is read only when the
+  window changes display.
+- **Demo.** The demo sheet is regenerated.
+
 ## 2026-11-23 (hue shifting: owner answers, branch `feat/hue-shift`)
 
 The owner answered the four follow-up questions. See DESIGN §6 item 2 and §6b.

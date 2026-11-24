@@ -44,14 +44,20 @@ public struct HueShiftPolicy: Sendable, Hashable {
     /// colour can turn crimson or vermilion but not orange (a warning) or magenta. Narrows the
     /// strategy's own range and never widens it.
     public var guardsSemanticRed: Bool
+    /// Owner decision 2026-11-23: grey text that has to be adjusted over a coloured backdrop always
+    /// takes a tint of the backdrop's complement, up to `maxChromaGain`, even though the
+    /// minimum-change cost would almost never choose it. Grey backdrops leave it grey.
+    public var tintsGreyText: Bool
     /// Weight on closeness to the previous target when choosing among hue/chroma candidates. It
     /// stops two near-equal hue branches (leaning one way or the other) from alternating frame to frame.
     public var continuity: Double
 
     public init(
         strategy: Strategy, maxChromaGain: Double = 0.03, maxHueShift: Double = 45, advantage: Double = 0.03,
-        chromaLossWeight: Double = 2, guardsSemanticRed: Bool = true, continuity: Double = 0.15
+        chromaLossWeight: Double = 2, guardsSemanticRed: Bool = true, tintsGreyText: Bool = true,
+        continuity: Double = 0.15
     ) {
+        self.tintsGreyText = tintsGreyText
         self.guardsSemanticRed = guardsSemanticRed
         self.chromaLossWeight = chromaLossWeight
         self.strategy = strategy
@@ -221,8 +227,28 @@ extension ContrastSolver {
         return Candidate(color: color, polarity: side, score: s, feasible: true, hueShifted: true)
     }
 
-    /// Weighted mean hue of the background in OKLab, or nil when it is too close to grey to have one.
-    static func dominantHue(_ bg: BackgroundSample) -> Double? {
+    /// The deliberate grey-text tint on `side`, or nil when the backdrop is too grey to have a
+    /// complement. Tint chroma ramps with backdrop chroma (none below 0.02, full from 0.05), so a
+    /// backdrop hovering near grey fades the tint in and out instead of toggling it.
+    func greyTint(toward side: Polarity, _ bg: BackgroundSample.Summary, background: BackgroundSample) -> Candidate? {
+        guard let (hue, chroma) = Self.meanHue(background), let yStar = boundaryLuminance(side, bg) else {
+            return nil
+        }
+        let t = min(max((chroma - 0.02) / 0.03, 0), 1)
+        let full = max(hueShift.maxChromaGain, 0) * t * t * (3 - 2 * t)
+        guard full > 0.002 else { return nil }
+        let complement = (hue + 180).truncatingRemainder(dividingBy: 360)
+        if let hit = point(hue: complement, chroma: full, yStar: yStar, side: side, bg) { return hit }
+        // Near white or black the gamut may not hold the full tint; take what fits.
+        var lo = 0.0, hi = full
+        for _ in 0..<10 {
+            let mid = (lo + hi) / 2
+            if point(hue: complement, chroma: mid, yStar: yStar, side: side, bg) != nil { lo = mid } else { hi = mid }
+        }
+        return lo > 0.002 ? point(hue: complement, chroma: lo, yStar: yStar, side: side, bg) : nil
+    }
+
+    static func meanHue(_ bg: BackgroundSample) -> (hue: Double, chroma: Double)? {
         var a = 0.0, b = 0.0, w = 0.0
         for (c, wt) in zip(bg.colors, bg.weights) {
             let lab = c.clamped().oklab
@@ -232,7 +258,13 @@ extension ContrastSolver {
         }
         guard w > 0 else { return nil }
         let mean = OKLab(L: 0, a: a / w, b: b / w).lch
-        return mean.C < 0.02 ? nil : mean.h
+        return (mean.h, mean.C)
+    }
+
+    /// Weighted mean hue of the background in OKLab, or nil when it is too close to grey to have one.
+    static func dominantHue(_ bg: BackgroundSample) -> Double? {
+        guard let (hue, chroma) = meanHue(bg), chroma >= 0.02 else { return nil }
+        return hue
     }
 }
 

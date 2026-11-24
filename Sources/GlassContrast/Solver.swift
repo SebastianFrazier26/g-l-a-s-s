@@ -68,6 +68,9 @@ public struct ContrastSolver: Sendable {
         let lab = original.oklab
         func shifted(_ plain: Candidate) -> Candidate {
             guard plain.feasible, hueShift.strategy != .lightnessOnly else { return plain }
+            if lch.C < 0.01 && hueShift.tintsGreyText {
+                return greyTint(toward: plain.polarity, bg, background: background) ?? plain
+            }
             let plainCost = hueShift.cost(from: lch, to: plain.color.oklch)
             // Inside the hysteresis band the previous mode keeps winning, in both directions.
             let margin = preferredHueShift == true ? -hueShift.advantage : hueShift.advantage

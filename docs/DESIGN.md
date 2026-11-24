@@ -341,11 +341,16 @@ Built ahead of sign-off so it can be evaluated. Discard the branch if B is rejec
    - **Hue cap: 45° (owner).** This was 60° in the first cut.
    - **Chroma gain: +0.03 OKLCH C (owner allowed "a little more"; value chosen here).** That is
      about 1.5 JND, noticeable side by side but not a recolour.
-     - Grey text may take a tint only at the backdrop's complement, at most 0.03, and only over a
-       chromatic backdrop (tested).
-     - Under the minimum-change cost, a tint rarely pays for itself. None of the sampled cases
-       tinted.
-   - **Semantic-red guard (on by default; it narrows, never widens, the owner's strategy).**
+     - **Deliberate grey tint (owner, 2026-11-23 follow-up).** Grey text that has to be adjusted
+       over a coloured backdrop always takes a tint of the backdrop's complement, up to +0.03
+       (`tintsGreyText`, on by default, can be turned off).
+     - Grey text that already passes is left untouched. Over a grey backdrop it stays grey.
+     - The tint's chroma ramps smoothly with backdrop chroma (none below 0.02, full from 0.05), so
+       a backdrop hovering near grey fades the tint rather than toggling it.
+     - Without this rule the minimum-change cost almost never chose a tint: in the first pass, none
+       of the sampled cases tinted.
+   - **Semantic-red guard (on by default, confirmed by the owner; it narrows, never widens, the
+     strategy).**
      Saturated reds (hue 345°–45°, C ≥ 0.1) stay inside 350°–45°. Measured: without it,
      #E53935 over blue #2050A0 turns amber (72°), which reads as a warning, not an error. The
      45° cap already rules out red→cyan.
@@ -377,9 +382,15 @@ Built ahead of sign-off so it can be evaluated. Discard the branch if B is rejec
        at C 0.076.
      - #2255FF on #202020 turns 34° to h 231°, at C 0.152 against 0.115.
      - The demo sheet's brand orange turns yellow over dark navy (t = 6.4 s), rather than fading
-       to peach.
+       to peach. The owner accepted this. There is no list of protected brand hues.
      - Mild cases are unchanged: #3355AA on #101418, and red on grey.
    - **Spike flag:** `--hue-shift complementary|nearest|lightness`.
+   - **Known limitations.**
+     - The display's gamut is read only when the window lands on a display, at start or on moving
+       to another one. Changing a display's colour profile while the window stays put is not
+       picked up until it moves. The owner accepted this for now.
+     - P3 output has not yet been seen on real hardware. The owner tests the current build first;
+       the .app is rebuilt only on their word, because rebuilding resets Screen Recording.
 3. **Smoothing:** about 0.5 s to settle (ω = 12 rad/s). That is slow enough to read as calm and fast
    enough not to linger unreadable.
 4. **Minimum macOS:** macOS 14 for the package, and macOS 26 for Liquid Glass, with a material
@@ -397,7 +408,7 @@ Typed by the owner in the orchestrating session and relayed to the implementing 
 | Transparency mode | **Both, as a setting.** Keyed is the default: uniform alpha fades the window's own text with its background. | `TransparencySetting` (`Sources/GlassOverlay/Settings.swift`); spike `--mode keyed\|uniform`, `--alpha` |
 | Urgent easing (Q3b) | **Always smooth.** Urgent easing stays off by default. The flag stays for experiments. | `OwnerDefaults.urgentOmega = nil`; spike `--urgent-easing` |
 | Contrast target | **APCA Lc 60** (unchanged). | `OwnerDefaults.contrastTarget` |
-| Hue (§6.2) | **Hue and chroma may shift.** **Complementary** is the default strategy (`nearest` and `lightnessOnly` stay as settings). **A little more saturation** (+0.03 C). **45° hue cap.** **Display P3** where the display supports it, sRGB otherwise. | `HueShiftPolicy.default`, `OwnerDefaults.hueShift`, `ColorGamut`, `DisplayInfo.gamut`; spike `--hue-shift` |
+| Hue (§6.2) | **Hue and chroma may shift.** **Complementary** is the default strategy (`nearest` and `lightnessOnly` stay as settings). **A little more saturation** (+0.03 C). **45° hue cap.** **Display P3** where the display supports it, sRGB otherwise. Follow-up: grey text being adjusted over a coloured backdrop **always takes the complementary tint** (setting to turn off); **red guard stays on**; no brand-hue protection list. | `HueShiftPolicy.default`, `OwnerDefaults.hueShift`, `ColorGamut`, `DisplayInfo.gamut`; spike `--hue-shift` |
 | Signing | **Keep ad-hoc.** No Developer ID yet, so every rebuild of the .app needs Screen Recording granted again. | `scripts/bundle-spike.sh` |
 
 This supersedes assumption 1 in §6 (now confirmed), assumption 2 (hue now moves), and assumption 5
