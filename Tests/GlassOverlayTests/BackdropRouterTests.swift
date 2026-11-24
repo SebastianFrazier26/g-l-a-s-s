@@ -61,11 +61,16 @@ struct BackdropRouterTests {
             3, route: .init(display: 8, sourceRect: CGRect(x: 0, y: 0, width: 100, height: 100), displaySize: size),
             sink: other.add)
 
-        router.deliver(displayFrame, display: 7, dirtyRects: nil)  // unknown: everyone on display 7
+        let elsewhere = [CGRect(x: 10, y: 10, width: 5, height: 5)]
+        router.deliver(displayFrame, display: 7, dirtyRects: elsewhere)  // first frame: everyone is fed
         #expect(a.all.count == 1 && b.all.count == 1 && other.all.isEmpty)
+        router.deliver(displayFrame, display: 7, dirtyRects: [])  // empty: unknown, everyone
+        #expect(a.all.count == 2 && b.all.count == 2)
+        router.deliver(displayFrame, display: 7, dirtyRects: nil)  // unknown: everyone on display 7
+        #expect(a.all.count == 3 && b.all.count == 3 && other.all.isEmpty)
 
-        router.deliver(displayFrame, display: 7, dirtyRects: [CGRect(x: 10, y: 10, width: 5, height: 5)])
-        #expect(a.all.count == 2 && b.all.count == 1)
+        router.deliver(displayFrame, display: 7, dirtyRects: elsewhere)
+        #expect(a.all.count == 4 && b.all.count == 3)
         #expect(router.takeSkipped(2) == 1 && router.takeSkipped(2) == 0)
 
         router.update(2, route: .init(display: 8, sourceRect: .zero, displaySize: size))

@@ -30,6 +30,7 @@ public final class BackdropRouter: @unchecked Sendable {
     private var routes: [CGWindowID: (route: Route, sink: Sink)] = [:]
     /// Per window, backdrop frames skipped because nothing changed under it.
     private var skipped: [CGWindowID: Int] = [:]
+    private var fed: Set<CGWindowID> = []
 
     public init() {}
 
@@ -45,6 +46,7 @@ public final class BackdropRouter: @unchecked Sendable {
         lock.withLock {
             routes[id] = nil
             skipped[id] = nil
+            fed.remove(id)
         }
     }
 
@@ -59,15 +61,19 @@ public final class BackdropRouter: @unchecked Sendable {
 
     /// Hands each window on `display` its crop of `frame`. `dirtyRects` are in the frame's top-left
     /// pixels, as ScreenCaptureKit reports them; a window none of them touches is skipped, since its
-    /// backdrop did not change. nil means "unknown": everyone gets the frame.
+    /// backdrop did not change. nil or empty means "unknown": everyone gets the frame. A window that
+    /// has never had a backdrop always gets one, or a static window would never be drawn.
     public func deliver(_ frame: CIImage, display: CGDirectDisplayID, dirtyRects: [CGRect]?) {
         let targets = lock.withLock {
             routes.filter { $0.value.route.display == display }.compactMap { id, entry -> (Sink, Route)? in
                 let px = Self.framePixels(entry.route, frameSize: frame.extent.size)
-                if let dirtyRects, !dirtyRects.contains(where: { $0.intersects(px) }) {
+                if let dirtyRects, !dirtyRects.isEmpty, fed.contains(id),
+                    !dirtyRects.contains(where: { $0.intersects(px) })
+                {
                     skipped[id, default: 0] += 1
                     return nil
                 }
+                fed.insert(id)
                 return (entry.sink, entry.route)
             }
         }
