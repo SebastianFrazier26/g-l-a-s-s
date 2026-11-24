@@ -1,5 +1,5 @@
 // Feasibility spike (2026-11-23) for docs/DESIGN.md option B, which was approved 2026-11-23.
-// Not yet run against a real window: capture needs Screen Recording, which can't be granted headless.
+// First live run 2026-11-23 (dark mode, 3 instances): see docs/perf.md for what failed and why.
 // Build the bundled app with scripts/bundle-spike.sh and follow README "Running the spike".
 import AppKit
 import ApplicationServices
@@ -141,8 +141,10 @@ final class OverlayController {
     private lazy var streamDelegate = StreamDelegate { [weak self] error in
         Task { @MainActor in await self?.streamStopped(error) }
     }
-    private var frames = 0
+    private var presented = 0
+    private var reorders = 0
     private var lastReport = Date()
+    private let renderQueue = DispatchQueue(label: "glass.recomposite", qos: .userInteractive)
 
     init(options: Options) {
         self.options = options
@@ -194,7 +196,9 @@ final class OverlayController {
         lastSize = snap.frame.size
         currentFrame = snap.frame
         updateGeometry()
-        pipeline.startAnalysis()
+        pipeline.startAnalysis { [weak self] in
+            Task { @MainActor in self?.recomposite() }
+        }
         occlusionTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateGeometry() }
         }
@@ -237,15 +241,51 @@ final class OverlayController {
     /// Holes for windows in front of the target, backdrop coverage when straddling displays, and
     /// pausing while fully covered. Polled at 10 Hz: menus and popovers open at human speed.
     private func updateGeometry() {
+        reportIfDue()
         guard !hidden, let tracker, let displayInfo else { return }
         let s = scale
         let px = { (r: CGRect) in CGRect(x: r.minX * s, y: r.minY * s, width: r.width * s, height: r.height * s) }
+        let list = WindowList.allOnScreen()
+        if let overlay, !Occlusion.isInFront(overlay: CGWindowID(overlay.windowNumber), of: tracker.windowID, in: list)
+        {
+            overlay.order(.above, relativeTo: Int(tracker.windowID))
+            reorders += 1
+        }
         let occluders = Occlusion.occluders(
-            of: tracker.windowID, in: WindowList.allOnScreen(), ignoringPID: ProcessInfo.processInfo.processIdentifier)
+            of: tracker.windowID, in: list, ignoringPID: ProcessInfo.processInfo.processIdentifier)
         let coverage = DisplayLayout.coverage(window: currentFrame, display: displayInfo)
         let full = CGRect(origin: .zero, size: currentFrame.size)
-        pipeline.setGeometry(holes: occluders.map(px), backdropCoverage: coverage == full ? nil : px(coverage))
-        pipeline.setPaused(Occlusion.isFullyCovered(currentFrame.size, by: occluders))
+        let moved = pipeline.setGeometry(
+            holes: occluders.map(px), backdropCoverage: coverage == full ? nil : px(coverage))
+        let toggled = pipeline.setPaused(Occlusion.isFullyCovered(currentFrame.size, by: occluders))
+        if moved || toggled { recomposite() }
+    }
+
+    /// For inputs that arrive outside the capture callbacks (styles, holes): render off the main
+    /// thread, present on it.
+    private func recomposite() {
+        let pipeline = self.pipeline
+        renderQueue.async { [weak self] in
+            guard let out = pipeline.composite(), let surface = CVPixelBufferGetIOSurface(out)?.takeUnretainedValue()
+            else { return }
+            let box = Unchecked(value: surface)
+            Task { @MainActor in self?.present(box.value) }
+        }
+    }
+
+    /// Rates per second over the last ~5 s. Window and backdrop frames arrive only when their pixels
+    /// change, so low numbers on a static screen are expected; analysis near 0 means it is idling.
+    private func reportIfDue() {
+        let dt = Date().timeIntervalSince(lastReport)
+        guard dt >= 5 else { return }
+        let st = pipeline.takeStats()
+        func r(_ n: Int) -> String { String(format: "%.1f", Double(n) / dt) }
+        print(
+            "per s: window \(r(st.windowFrames)), backdrop \(r(st.backdropFrames)), composited \(r(st.composites)), "
+                + "presented \(r(presented)), analysis \(r(st.analyses)), ocr \(r(st.ocrRuns)); z-reorders \(reorders)")
+        presented = 0
+        reorders = 0
+        lastReport = Date()
     }
 
     private func switchBackdropDisplay() async {
@@ -296,6 +336,9 @@ final class OverlayController {
     private func windowConfig(for size: CGSize) -> SCStreamConfiguration {
         let c = SCStreamConfiguration()
         (c.width, c.height) = DisplayLayout.pixelSize(size, scale: scale)
+        // Single-window capture includes the drop shadow by default, and the shadowed image is then
+        // scaled down into this size, so the copy came out smaller than, and offset from, the window.
+        c.ignoreShadowsSingleWindow = true
         common(c)
         return c
     }
@@ -310,16 +353,14 @@ final class OverlayController {
     private func addOutput(to stream: SCStream, role: FrameOutput.Role) throws {
         let pipeline = self.pipeline
         let output = FrameOutput(role: role) { [weak self] role, buffer in
-            switch role {
-            case .backdrop:
-                pipeline.ingestBackdrop(buffer.value)
-            case .window:
-                guard let out = pipeline.ingestWindow(buffer.value),
-                    let surface = CVPixelBufferGetIOSurface(out)?.takeUnretainedValue()
-                else { return }
-                let box = Unchecked(value: surface)
-                Task { @MainActor in self?.present(box.value) }
-            }
+            let out =
+                switch role {
+                case .backdrop: pipeline.ingestBackdrop(buffer.value)
+                case .window: pipeline.ingestWindow(buffer.value)
+                }
+            guard let out, let surface = CVPixelBufferGetIOSurface(out)?.takeUnretainedValue() else { return }
+            let box = Unchecked(value: surface)
+            Task { @MainActor in self?.present(box.value) }
         }
         try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: output.queue)
         outputs.append(output)
@@ -327,12 +368,7 @@ final class OverlayController {
 
     private func present(_ surface: IOSurface) {
         overlay?.contentLayer.contents = surface
-        frames += 1
-        if Date().timeIntervalSince(lastReport) >= 5 {
-            print(String(format: "%.1f fps composited", Double(frames) / Date().timeIntervalSince(lastReport)))
-            frames = 0
-            lastReport = Date()
-        }
+        presented += 1
     }
 }
 

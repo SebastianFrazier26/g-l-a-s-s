@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-11-23 (first live run fixes, branch `fix/overlay-perf`)
+
+These fixes are not yet in the signed .app. See `docs/perf.md`.
+- **Every input triggers a composite.** That covers backdrop frames, text-style changes, and hole
+  or pause changes, not only window frames. Before this, a static window was never drawn.
+- **Text analysis idles on a static screen.** OCR re-runs only after the window changes.
+- **The spike re-orders the overlay above its target** when clicking the target raises the target
+  over it.
+- **Window capture ignores the drop shadow.** Before this, the window copy came out shrunk and
+  offset from the real window.
+- **The spike logs per-second rates every 5 s,** replacing the misleading "fps composited" line.
+
 ## 2026-11-23 (owner decisions, branch `mvp/overlay-b-robustness`)
 
 These are the owner's decisions, recorded in DESIGN §6b.
