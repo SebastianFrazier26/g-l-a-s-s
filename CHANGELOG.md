@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-11-23 (hue shifting, branch `feat/hue-shift`)
+
+The owner overturned DESIGN §6 assumption 2 ("keep the original hue"). The 0.5 s settle and the
+macOS 14 minimum are unchanged.
+- **Text may shift hue and chroma, not just lightness.** `HueShiftPolicy` sets how
+  (`Sources/GlassContrast/HueShift.swift`).
+  - Lightness-only is still tried first.
+  - A hue/chroma move is used only if it is clearly closer to the original colour, measured by
+    ΔE_OK with chroma loss weighted ×2. In practice that is when lightness alone would wash the
+    colour out near white or black.
+  - Hue turns are capped at 60°, chroma never rises above the original, and the colour stays in
+    the sRGB gamut.
+- **Setting.** The strategies are `.nearest` (the default), `.complementary` and
+  `.lightnessOnly`.
+  - The default lives in `OwnerDefaults.hueShift`, and the policy is passed through
+    `OverlayPipeline.Options.hueShift` and `TextLayerModel`.
+  - The spike takes `--hue-shift`.
+- **Smoother hue transitions.** The text-colour spring now eases in OKLCH, with hue on the shorter
+  arc. The OKLab path remains as `InterpolationSpace.oklab`.
+- **Less flicker.** New hysteresis keeps lightness-only and hue-shifted answers, and near-equal
+  hue branches, from alternating.
+- **API changes.** `ContrastSolution` gains `hueShifted`. `ContrastSolver.solve` and
+  `solveWithScrim` take optional `preferredHueShift` and `previous` hints.
+
 ## 2026-11-23 (owner decisions, branch `mvp/overlay-b-robustness`)
 
 These are the owner's decisions, recorded in DESIGN §6b.

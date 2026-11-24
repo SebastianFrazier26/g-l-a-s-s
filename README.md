@@ -38,10 +38,14 @@ macOS doesn't let one app change another app's window opacity or text colour.
 
 1. It samples the colours behind the text and takes the darkest and lightest backgrounds at the
    95th percentile.
-2. In **OKLCH**, a perceptual colour space, it holds the text's **hue** fixed and moves only its
-   lightness, as little as needed to reach the target contrast:
+2. In **OKLCH**, a perceptual colour space, it first holds the text's **hue** fixed and moves only
+   its lightness, as little as needed to reach the target contrast:
    - **APCA Lc 60** by default;
    - **WCAG 2 ratios** are also supported.
+
+   If that would wash the colour out toward grey, it may turn the hue by up to 60° toward one
+   that keeps more colour at the new lightness. That rule is from the owner's decision of
+   2026-11-23, DESIGN §6 item 2.
 3. It tries both directions, lighter and darker, and keeps the smaller visible change.
 4. If no colour can work, it adds the faintest black or white veil (a **scrim**) that does.
 5. It eases the result in with a critically damped spring. Three kinds of hysteresis keep fast or
