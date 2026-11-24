@@ -68,6 +68,15 @@ struct OcclusionTests {
         #expect(rects == [CGRect(x: 0, y: 0, width: 200, height: 200), CGRect(x: 50, y: 20, width: 120, height: 200)])
     }
 
+    @Test func overlayFallingBehindItsTargetIsDetected() {
+        let f = CGRect(x: 0, y: 0, width: 100, height: 100)
+        let ok = [win(52, "Overlay", pid: 99, f), win(50, "Notes", pid: 7, f), win(10, "TextEdit", pid: 9, f)]
+        let raised = [win(10, "TextEdit", pid: 9, f), win(52, "Overlay", pid: 99, f)]  // after clicking the target
+        #expect(Occlusion.isInFront(overlay: 52, of: 10, in: ok))
+        #expect(!Occlusion.isInFront(overlay: 52, of: 10, in: raised))
+        #expect(!Occlusion.isInFront(overlay: 52, of: 10, in: [win(10, "TextEdit", pid: 9, f)]))  // not on screen
+    }
+
     @Test func missingTargetMeansNothingToCut() {
         #expect(Occlusion.occluders(of: 10, in: [win(1, "A", pid: 1, target)], ignoringPID: 99).isEmpty)
     }

@@ -81,6 +81,15 @@ public enum Occlusion {
         }
     }
 
+    /// Whether `overlay` is in front of `target` in a front-to-back list. Clicking the target
+    /// activates its app, which raises the target above the overlay without moving it, so frame
+    /// changes alone never reveal this. Windows between the two are fine: they are cut as holes.
+    public static func isInFront(overlay: CGWindowID, of target: CGWindowID, in list: [[String: Any]]) -> Bool {
+        let ids = list.compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value }
+        guard let t = ids.firstIndex(of: target), let o = ids.firstIndex(of: overlay) else { return false }
+        return o < t
+    }
+
     /// Grid test (32×32 cell centres): cheap, and exact enough to decide whether to pause capture.
     public static func isFullyCovered(_ size: CGSize, by rects: [CGRect]) -> Bool {
         guard !rects.isEmpty, size.width > 0, size.height > 0 else { return false }
