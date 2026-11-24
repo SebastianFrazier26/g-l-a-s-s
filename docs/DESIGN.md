@@ -317,37 +317,69 @@ Built ahead of sign-off so it can be evaluated. Discard the branch if B is rejec
    WCAG 2 AA (4.5:1) is the legally referenced one.
 2. **Hue:** ~~keep the original hue and move lightness only.~~ **Overturned by the owner on
    2026-11-23:** text may also shift hue and chroma when needed, on colour-theory grounds. The
-   0.5 s settle and the macOS 14 minimum are unchanged. The algorithm (`HueShiftPolicy`,
+   0.5 s settle and the macOS 14 minimum are unchanged. Later the same day the owner answered the
+   four follow-up questions (§6b). The algorithm (`HueShiftPolicy`,
    `Sources/GlassContrast/HueShift.swift`):
    - **Why hue can help at all.** APCA and WCAG score luminance only, so hue never rescues a
      background that white or black can't. If nothing passes, the scrim still applies. Hue buys a
      *smaller visible change*. Lightness-only pushed toward white or black runs out of gamut and
      drains chroma (a blue forced near-white becomes a pale grey-blue). Hues with more gamut room
-     at that lightness keep the text colourful: cyan and yellow near white, blue and red near black.
+     at that lightness keep the text colourful.
    - **Lightness first.** The old lightness-only search runs unchanged. Its result stands unless
      the hue/chroma result is cheaper by `advantage` (0.03, about 1.5 JND).
    - **Cost.** ΔE_OK decomposed into ΔL, ΔC and ΔH, with chroma *loss* weighted ×2
-     (`chromaLossWeight`). Plain ΔE (weight 1) almost never prefers a hue move: the needed
-     luminance pins L, and hue changes luminance at fixed L only slightly. Measured: 0.292 against
-     0.295 for #3355AA on #101418. At weight 3, red error text over dark grey turned orange, which
-     the old rejection reason warns against.
-   - **Search.** Find the boundary luminance once with a grey probe. The score depends on
-     luminance only, so one probe serves every hue. Then, on a grid (hue every 15° within
-     ±`maxHueShift`, which is 60°; five chroma levels up to the original chroma plus
-     `maxChromaGain`, which is 0), bisect L onto that luminance. Keep in-gamut, re-verified
-     candidates, then refine with a pattern search. About 0.2 ms per solve in release builds. The
-     scrim's opacity bisection probes lightness-only, because feasibility doesn't depend on hue.
-   - **Gamut.** sRGB, the gamut the engine already uses. Display P3 is not modelled yet.
+     (`chromaLossWeight`).
+     - At weight 1 (plain ΔE_OK) a hue move almost never wins. The needed luminance pins L, and
+       hue changes luminance at fixed L only slightly. Measured: 0.292 against 0.295 for #3355AA
+       on #101418.
+     - At weight 3, red error text over dark grey turned orange.
+   - **Strategy: complementary (owner default).** Hue may only rotate from the original toward the
+     complement of the local backdrop's mean OKLab hue, within the cap. Within that arc the
+     smallest change wins. Over an achromatic backdrop there is no complement, so coloured text
+     behaves as `nearest` and grey text gets no tint. `nearest` (either direction) and
+     `lightnessOnly` remain settings.
+   - **Hue cap: 45° (owner).** This was 60° in the first cut.
+   - **Chroma gain: +0.03 OKLCH C (owner allowed "a little more"; value chosen here).** That is
+     about 1.5 JND, noticeable side by side but not a recolour.
+     - Grey text may take a tint only at the backdrop's complement, at most 0.03, and only over a
+       chromatic backdrop (tested).
+     - Under the minimum-change cost, a tint rarely pays for itself. None of the sampled cases
+       tinted.
+   - **Semantic-red guard (on by default; it narrows, never widens, the owner's strategy).**
+     Saturated reds (hue 345°–45°, C ≥ 0.1) stay inside 350°–45°. Measured: without it,
+     #E53935 over blue #2050A0 turns amber (72°), which reads as a warning, not an error. The
+     45° cap already rules out red→cyan.
+   - **Search.**
+     1. Find the boundary luminance once with a grey probe. The score depends on luminance only,
+        so one probe serves every hue.
+     2. For each hue on a 15° grid within the allowed arc, bisect chroma to the gamut edge (capped
+        at the original chroma, and at original + gain) and bisect L onto the boundary luminance.
+     3. Keep in-gamut, re-verified candidates, then refine hue.
+
+     Fixed chroma levels were tried first and lost: they land inside the gamut, not on its edge.
+     A solve takes about 0.2–1 ms in release builds. The scrim's opacity bisection probes
+     lightness-only, because feasibility doesn't depend on hue.
+   - **Gamut: Display P3 where the display supports it (owner).**
+     - `ColorGamut` (`Gamut.swift`) carries P3 colours as extended sRGB (channels outside 0...1).
+       The sRGB↔P3 matrices are derived from the primaries.
+     - The luminance functions accept extended values, using a sign-preserving power for APCA, so
+       scoring is continuous across the sRGB edge.
+     - The overlay reads `NSScreen.canRepresent(.p3)` per display (`DisplayInfo.gamut`). It calls
+       `OverlayPipeline.setDisplayGamut` at start and when the window changes display. Every text
+       region then re-solves, and the live buffer is rendered and tagged in that colour space.
+     - Example: #00AA55 on #EEEEEE keeps its full chroma on P3 (0.171) but drops to 0.147 in sRGB.
    - **Stability.** There are two hysteresis guards. The mode band: entering shifted mode costs
      `advantage`, and so does leaving it. The `continuity` term (0.15 × ΔE to the last target)
      stops two near-equal hue branches from alternating. The spring eases in OKLCH on the shorter
      hue arc, and gamut-maps mid-transition points by chroma reduction.
-   - **Options behind the setting.** `.nearest` (default), `.complementary` (only rotate away from
-     the backdrop's mean hue), `.lightnessOnly` (the old behaviour). The spike takes
-     `--hue-shift nearest|complementary|lightness`.
-   - **Example.** #0066CC on #5577AA: lightness-only gives #D4E6FF (C 0.04); the default gives
-     #10FCFE (C 0.15, a 60° turn to cyan). Both reach Lc 60. Mild cases, such as #3355AA on
-     #101418, are unchanged.
+   - **Examples (sRGB, default).**
+     - #0066CC on #5577AA: lightness-only gives C 0.039; the default turns 45° to azure (h 211°)
+       at C 0.076.
+     - #2255FF on #202020 turns 34° to h 231°, at C 0.152 against 0.115.
+     - The demo sheet's brand orange turns yellow over dark navy (t = 6.4 s), rather than fading
+       to peach.
+     - Mild cases are unchanged: #3355AA on #101418, and red on grey.
+   - **Spike flag:** `--hue-shift complementary|nearest|lightness`.
 3. **Smoothing:** about 0.5 s to settle (ω = 12 rad/s). That is slow enough to read as calm and fast
    enough not to linger unreadable.
 4. **Minimum macOS:** macOS 14 for the package, and macOS 26 for Liquid Glass, with a material
@@ -365,7 +397,9 @@ Typed by the owner in the orchestrating session and relayed to the implementing 
 | Transparency mode | **Both, as a setting.** Keyed is the default: uniform alpha fades the window's own text with its background. | `TransparencySetting` (`Sources/GlassOverlay/Settings.swift`); spike `--mode keyed\|uniform`, `--alpha` |
 | Urgent easing (Q3b) | **Always smooth.** Urgent easing stays off by default. The flag stays for experiments. | `OwnerDefaults.urgentOmega = nil`; spike `--urgent-easing` |
 | Contrast target | **APCA Lc 60** (unchanged). | `OwnerDefaults.contrastTarget` |
+| Hue (§6.2) | **Hue and chroma may shift.** **Complementary** is the default strategy (`nearest` and `lightnessOnly` stay as settings). **A little more saturation** (+0.03 C). **45° hue cap.** **Display P3** where the display supports it, sRGB otherwise. | `HueShiftPolicy.default`, `OwnerDefaults.hueShift`, `ColorGamut`, `DisplayInfo.gamut`; spike `--hue-shift` |
 | Signing | **Keep ad-hoc.** No Developer ID yet, so every rebuild of the .app needs Screen Recording granted again. | `scripts/bundle-spike.sh` |
 
-This supersedes assumption 1 in §6 (now confirmed) and assumption 5 (Developer ID is deferred).
+This supersedes assumption 1 in §6 (now confirmed), assumption 2 (hue now moves), and assumption 5
+(Developer ID is deferred).
 Still open: packaging and distribution channel, and repo visibility (§6.6).

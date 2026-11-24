@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-11-23 (hue shifting: owner answers, branch `feat/hue-shift`)
+
+The owner answered the four follow-up questions. See DESIGN §6 item 2 and §6b.
+- **Complementary is now the default strategy.** Hue turns only toward the complement of the local
+  backdrop's hue. `nearest` and `lightnessOnly` remain as settings.
+- **Hue turns are capped at 45°** (was 60°).
+- **Chroma may rise by up to +0.03 OKLCH C.**
+  - Grey text may take a tint, but only at the backdrop's complement, at most 0.03, and only over
+    a chromatic backdrop.
+  - In practice the minimum-change rule rarely picks one.
+- **Semantic-red guard (on by default).** Saturated reds stay within 350°–45° and don't turn amber
+  over blue backdrops. It narrows the owner's strategy and never overrides it.
+- **Display P3 support.**
+  - The solver works in the display's gamut (`ColorGamut`). P3 colours are carried as extended
+    sRGB.
+  - The overlay detects each display's gamut (`NSScreen.canRepresent(.p3)`). It re-solves when
+    the window changes display, and renders and tags the live buffer in P3 or sRGB.
+  - APCA and WCAG luminance accept extended values.
+- **Search fix.** Hue/chroma candidates now sit on the gamut edge. Fixed chroma levels missed it
+  and almost never beat lightness-only.
+- **Demo.** The demo sheet is regenerated. Its "brand orange" line is renamed, because it now
+  turns yellow over dark navy.
+
 ## 2026-11-23 (hue shifting, branch `feat/hue-shift`)
 
 The owner overturned DESIGN §6 assumption 2 ("keep the original hue"). The 0.5 s settle and the
@@ -11,7 +34,7 @@ macOS 14 minimum are unchanged.
     ΔE_OK with chroma loss weighted ×2. In practice that is when lightness alone would wash the
     colour out near white or black.
   - Hue turns are capped at 60°, chroma never rises above the original, and the colour stays in
-    the sRGB gamut.
+    the sRGB gamut. The follow-up entry above superseded these limits the same day.
 - **Setting.** The strategies are `.nearest` (the default), `.complementary` and
   `.lightnessOnly`.
   - The default lives in `OwnerDefaults.hueShift`, and the policy is passed through

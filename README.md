@@ -43,9 +43,10 @@ macOS doesn't let one app change another app's window opacity or text colour.
    - **APCA Lc 60** by default;
    - **WCAG 2 ratios** are also supported.
 
-   If that would wash the colour out toward grey, it may turn the hue by up to 60° toward one
-   that keeps more colour at the new lightness. That rule is from the owner's decision of
-   2026-11-23, DESIGN §6 item 2.
+   If that would wash the colour out toward grey, it may turn the hue up to 45°, toward the
+   complement of the backdrop. It turns only as far as keeps more colour at the new lightness.
+   Saturated reds stay red. These are the owner's decisions of 2026-11-23, DESIGN §6 item 2.
+   On Display P3 screens it uses the wider P3 gamut.
 3. It tries both directions, lighter and darker, and keeps the smaller visible change.
 4. If no colour can work, it adds the faintest black or white veil (a **scrim**) that does.
 5. It eases the result in with a critically damped spring. Three kinds of hysteresis keep fast or
