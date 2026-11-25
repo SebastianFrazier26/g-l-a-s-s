@@ -55,6 +55,36 @@ struct CompositorTests {
         #expect(near(glyph.r, 0) && near(glyph.g, 0) && near(glyph.b, 0))  // content kept solid
     }
 
+    /// Owner feedback 2026-11-24: with the default look, backdrop detail must survive the glass.
+    /// Checker squares of 48 px (24 pt on Retina, about an icon) keep most of their contrast; the
+    /// pre-feedback look (sigma 24, 18% tint) flattened them to a grey wash.
+    @Test func defaultLookKeepsBackdropRecognisable() {
+        let n = 48
+        var backdrop = frame(4 * n, 4 * n, fill: .white)
+        for y in stride(from: 0, to: 4 * n, by: n) {
+            for x in stride(from: 0, to: 4 * n, by: n) where (x / n + y / n) % 2 == 0 {
+                backdrop.fill(CGRect(x: x, y: y, width: n, height: n), with: .black)
+            }
+        }
+        func contrast(_ p: GlassParameters) -> Int {
+            let out = render(backdrop, frame(4 * n, 4 * n, fill: .white), p)
+            return Int(out.pixel(2 * n + n / 2, n + n / 2).g) - Int(out.pixel(n + n / 2, n + n / 2).g)
+        }
+        #expect(contrast(OwnerDefaults.look.parameters(for: .keyed, key: .white)) > 180)
+        let before = GlassLook(transparency: 0, tintOpacity: 0.18, blurRadius: 24)
+        #expect(contrast(before.parameters(for: .keyed, key: .white)) < 120)
+    }
+
+    @Test func keyedContentAlphaLetsGlassThroughContent() {
+        var p = GlassParameters(mode: .keyed(key: .white, tolerance: 0.05, softness: 0.05, contentAlpha: 0.5))
+        p.tintOpacity = 0
+        p.blurRadius = 0
+        let window = frame(40, 40, fill: .white, rects: [(CGRect(x: 4, y: 4, width: 10, height: 10), .black)])
+        let out = render(frame(40, 40, fill: .white), window, p)
+        // 50% black content over white glass → 0.5 linear → 188.
+        #expect(near(out.pixel(8, 8).r, 188))
+    }
+
     @Test func orientationIsTopLeft() {
         // A black block in the *top-left* of the window must land top-left in the output.
         var p = GlassParameters(mode: .keyed(key: .white, tolerance: 0.05, softness: 0.05, contentAlpha: 1))

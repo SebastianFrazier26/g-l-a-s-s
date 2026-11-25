@@ -58,7 +58,7 @@ struct DemoContentView: View {
             content
                 .background {
                     ZStack {
-                        BackdropView(stripes: model.stripes).blur(radius: 18)
+                        BackdropView(stripes: model.stripes).blur(radius: model.tint.blurPoints)
                         Color(model.tint.color).opacity(model.tint.opacity)
                     }
                     .frame(width: 720, height: 420)

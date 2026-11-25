@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Opens test windows (TextEdit, Notes, Finder) and glasses all three from one spike process.
-# Usage: scripts/glass-test.sh [--mode keyed|uniform] [--measure SECONDS]
+# Usage: scripts/glass-test.sh [--mode keyed|uniform] [--transparency T] [--tint T] [--blur PX] [--measure SECONDS]
 # Stop: pkill -x GlassCaptureSpike
 set -euo pipefail
 
@@ -9,10 +9,12 @@ APP="build/GlassCaptureSpike.app"
 LOG="$HOME/Library/Logs/g-l-a-s-s/spike.log"
 MODE="keyed"
 MEASURE=0
+LOOK=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --mode) MODE="$2"; shift 2 ;;
         --measure) MEASURE="$2"; shift 2 ;;
+        --transparency|--tint|--blur) LOOK+=("$1" "$2"); shift 2 ;;
         *) echo "unknown arg: $1" >&2; exit 2 ;;
     esac
 done
@@ -47,7 +49,7 @@ open "$HOME"
 sleep 3
 
 pkill -x GlassCaptureSpike 2>/dev/null || true
-open -n "$APP" --args --window TextEdit --window Notes --window Finder --mode "$MODE"
+open -n "$APP" --args --window TextEdit --window Notes --window Finder --mode "$MODE" ${LOOK[@]+"${LOOK[@]}"}
 sleep 3
 echo "--- overlays (log: $LOG)"
 grep -E "glassing|no on-screen|failed|can't see|backdrop capture|window\(s\)|nothing to glass" "$LOG" | tail -6

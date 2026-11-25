@@ -1,4 +1,5 @@
 import GlassContrast
+import GlassOverlay
 import Observation
 import SwiftUI
 
@@ -17,11 +18,14 @@ struct Backdrop {
     }
 }
 
-/// The glass panel: a light tint over the (blurred) backdrop. Mixing in linear light mirrors how
-/// a compositor blends; the solver sees this blended colour as the background behind the text.
+/// The glass panel: a light tint over the (blurred) backdrop, using the overlay's defaults so the
+/// sheet shows what the live overlay draws. Mixing in linear light mirrors how a compositor blends;
+/// the solver sees this blended colour as the background behind the text.
 struct GlassTint {
     var color = RGB(r: 1, g: 1, b: 1)
-    var opacity = 0.18
+    var opacity = OwnerDefaults.look.tintOpacity
+    /// The overlay's sigma is in Retina capture pixels; the demo draws at 1 px per point.
+    var blurPoints = OwnerDefaults.look.blurRadius / 2
 
     func over(_ bg: RGB) -> RGB {
         let a = bg.linear, t = color.linear

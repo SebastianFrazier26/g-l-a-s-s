@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-24 (owner feedback: glass far more transparent, branch `mvp/integration`)
+
+- **The glass is much more see-through by default** (DESIGN §6c). Tint 18% → 4%, blur sigma 24 →
+  6 px, keyed window content 100% → 80%, uniform window copy 55% → 30%.
+- **New spike flags:** `--transparency 0...1`, `--tint 0...0.5`, `--blur 0...40` (out-of-range values
+  are rejected, not clamped). `--alpha` still works as 1 − transparency. `scripts/glass-test.sh`
+  passes them through.
+- The demo contact sheet now renders the overlay's defaults.
+
 ## 2026-11-23 (integration build, branch `mvp/integration`)
 
 This merges `fix/overlay-perf` and `feat/hue-shift`, then applies the owner's decisions after the

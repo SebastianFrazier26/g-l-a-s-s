@@ -101,7 +101,9 @@ scripts/bundle-spike.sh                      # → build/GlassCaptureSpike.app (
    - To glass several windows at once, repeat the flag: `--window TextEdit --window Notes`. One
      process handles them all and shares one backdrop capture per display.
      `scripts/glass-test.sh` does this for TextEdit, Notes and Finder.
-   - Transparency is a setting: `--mode keyed` (the default) or `--mode uniform --alpha 0.55`.
+   - Transparency is a setting: `--mode keyed` (the default) or `--mode uniform`. The look is tunable
+     with `--transparency 0...1`, `--tint 0...0.5` and `--blur 0...40` (DESIGN §6c); `glass-test.sh`
+     passes these through.
    - Other options: `--key FFFFFF`, `--no-text`, `--fps 30`, and `--urgent-easing`. Urgent easing
      is off by default because the owner chose "always smooth".
    - `--list` shows window owner names; it needs no permission.

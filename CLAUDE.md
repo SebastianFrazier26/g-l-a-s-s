@@ -25,7 +25,8 @@
   Don't run `--window` or `--request-access` unattended. `--check` and `--list` are safe.
 - `docs/DESIGN.md`: the architecture options and feasibility. Option B was approved on 2026-11-23,
   relayed via the orchestrator. The owner's decisions (transparency, easing, contrast, signing) are
-  in DESIGN §6b and `OwnerDefaults`. Packaging and repo visibility are still open.
+  in DESIGN §6b and `OwnerDefaults`; the glass look (tint, blur, transparency) is in §6c and
+  `GlassLook`. Packaging and repo visibility are still open.
 
 ## Conventions
 

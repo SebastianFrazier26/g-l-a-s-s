@@ -13,9 +13,9 @@ public enum WindowMode: Sendable, Equatable {
 
 public struct GlassParameters: Sendable, Equatable {
     public var mode: WindowMode
-    public var blurRadius: Double = 24
+    public var blurRadius: Double = GlassLook.default.blurRadius
     public var tint: RGB = .white
-    public var tintOpacity: Double = 0.18
+    public var tintOpacity: Double = GlassLook.default.tintOpacity
 
     public init(mode: WindowMode) { self.mode = mode }
 

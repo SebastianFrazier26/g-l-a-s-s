@@ -418,3 +418,35 @@ tracking and process-model rows were decided after the first live run (`docs/per
 This supersedes assumption 1 in §6 (now confirmed), assumption 2 (hue now moves), and assumption 5
 (Developer ID is deferred).
 Still open: packaging and distribution channel, and repo visibility (§6.6).
+
+## 6c. Owner feedback: more transparent (2026-11-24)
+
+Owner, relayed by the orchestrator after retrying the integration build: "The g l a s s windows need
+to be more transparent to see the effect (by a lot)."
+
+What made the glass look opaque, and what changed:
+
+| Factor | Before | Now (default) | Setting and range |
+|---|---|---|---|
+| White frosting over the backdrop | 18% | **4%** | `--tint 0...0.5`, `GlassLook.tintOpacity` |
+| Backdrop blur (Gaussian sigma, capture pixels; 2 px = 1 pt on Retina) | 24 px | **6 px** | `--blur 0...40`, `GlassLook.blurRadius` |
+| Window content kept in keyed mode | 100% | **80%** (transparency 0.2) | `--transparency 0...1` |
+| Window copy in uniform mode | 55% | **30%** (transparency 0.7) | `--transparency`, or `--alpha` = 1 − transparency |
+| Backdrop capture | half resolution, fully opaque | unchanged: the overlay must cover the real window, so the glass itself stays opaque and "transparency" means how much backdrop shows through | — |
+
+Why these values:
+- Sigma 24 px smeared the desktop into a smooth gradient, which together with the 18% white tint
+  read as a coloured panel rather than glass. At 6 px, edges and shapes behind the window stay
+  recognisable (a 24 pt checkerboard keeps most of its contrast; regression test
+  `defaultLookKeepsBackdropRecognisable`) while fine detail is softened enough that it doesn't
+  compete with the text.
+- The frosting was standing in for legibility. Legibility is the contrast engine's job: text is
+  re-solved against the **unblurred** backdrop (a conservative stand-in), and lines no colour can
+  rescue get a scrim. So the tint only has to say "this is a surface", which a few percent does.
+- Keyed content at 80%: OCR'd text is redrawn opaque on top, so only icons, images and undetected
+  text fade. Uniform at 30% keeps the window recognisable while making the backdrop dominant.
+- Keying tolerance is unchanged (owner decision in §6b).
+
+The demo contact sheet (`docs/img/demo-contact-sheet.png`) now uses these defaults
+(`OwnerDefaults.look`) instead of its own copy of the old values. These are defaults chosen by the
+agent from the owner's direction; tune live with the flags and report back.

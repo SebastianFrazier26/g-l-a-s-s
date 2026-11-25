@@ -15,7 +15,7 @@ struct Options {
     /// every window, in case their coordinate space turns out not to be frame pixels.
     var useDirtyRects = true
     var mode = OwnerDefaults.transparency
-    var alpha = TransparencySetting.defaultUniformAlpha
+    var look = OwnerDefaults.look
     var urgent = false
     var hueShift = OwnerDefaults.hueShift
     var text = true
@@ -40,7 +40,18 @@ struct Options {
             case "--mode":
                 guard let m = it.next().flatMap(TransparencySetting.init(parsing:)) else { return nil }
                 o.mode = m
-            case "--alpha": o.alpha = it.next().flatMap(Double.init) ?? o.alpha
+            case "--transparency":
+                guard let v = GlassLook.parse(it.next(), in: GlassLook.transparencyRange) else { return nil }
+                o.look.transparency = v
+            case "--alpha":
+                guard let v = GlassLook.parse(it.next(), in: 0...1) else { return nil }
+                o.look.transparency = 1 - v
+            case "--tint":
+                guard let v = GlassLook.parse(it.next(), in: GlassLook.tintRange) else { return nil }
+                o.look.tintOpacity = v
+            case "--blur":
+                guard let v = GlassLook.parse(it.next(), in: GlassLook.blurRange) else { return nil }
+                o.look.blurRadius = v
             case "--fps": o.fps = it.next().flatMap(Int.init) ?? o.fps
             case "--key":
                 o.key = it.next().flatMap { UInt32($0.trimmingCharacters(in: ["#"]), radix: 16) }.map(RGB.init(hex:))
@@ -65,7 +76,11 @@ func usage() -> Never {
         GlassCaptureSpike --window <App> [--window <App> ...] [options]
                                    one process glasses the frontmost window of each app
             --mode keyed|uniform   keyed (default): window background turns to glass, content stays solid
-            --alpha 0.55           window-copy opacity in uniform mode
+            --transparency 0...1   share of the window's own content replaced by glass
+                                   (default: keyed 0.2, uniform 0.7)
+            --alpha 0...1          window-copy opacity; same as --transparency 1-alpha
+            --tint 0...0.5         white frosting over the backdrop (default 0.04)
+            --blur 0...40          backdrop blur sigma in pixels, 2 px = 1 pt on Retina (default 6)
             --key RRGGBB           key colour for keyed mode (default: the window's dominant colour)
             --urgent-easing        fast easing while text is unreadable (off: owner chose "always smooth")
             --hue-shift complementary|nearest|lightness
@@ -326,7 +341,7 @@ final class GlassedWindow {
         self.frame = frame
         self.display = display
         fps = options.fps
-        var o = OverlayPipeline.Options(transparency: options.mode, uniformAlpha: options.alpha, key: options.key)
+        var o = OverlayPipeline.Options(transparency: options.mode, look: options.look, key: options.key)
         o.urgentOmega = options.urgent ? 40 : OwnerDefaults.urgentOmega
         o.textEnabled = options.text
         o.hueShift = options.hueShift
